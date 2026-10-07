@@ -667,14 +667,15 @@
   }
 
   // create reserves the upload. False means stop: the server already had
-  // the file, or it failed.
-  async function create(item) {
+  // the file, or it failed. sentAll marks a re-check after a lost finish
+  // answer, where "done" means this tab's own upload completed.
+  async function create(item, sentAll) {
     for (;;) {
       if (item.cancelled) return false;
       try {
         const data = await api("POST", "/api/uploads", { name: item.name, dir: item.dir, size: item.size, fingerprint: item.fp });
         if (data.state === "done") {
-          complete(item, data.path, true);
+          complete(item, data.path, !sentAll);
           return false;
         }
         item.id = data.id;
@@ -768,7 +769,7 @@
         ownIds.delete(item.id);
         item.id = null;
         item.offset = item.sent = 0;
-        return (await create(item)) ? "again" : "stop";
+        return (await create(item, true)) ? "again" : "stop";
       }
       if (e.status === 507) {
         diskFull(item, e.message);

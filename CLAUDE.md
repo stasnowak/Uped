@@ -18,8 +18,8 @@ make test     # go vet ./... && go test -race ./...
 make run      # serve on 127.0.0.1:8080 from ./data (LISTEN=0.0.0.0:8080 to test from a phone)
 make cross    # dist/uped_linux_{amd64,arm64}.tar.gz + dist/checksums.txt
 sh scripts/smoke.sh   # end-to-end curl check of dist/uped; prints SMOKE OK
-sh scripts/ui-check.sh  # headless Chromium check of the web UI (interim until e2e/ exists)
-make e2e      # Playwright suite in e2e/ (Phase 4)
+make e2e      # Playwright suite in e2e/ against `go run ./cmd/uped` (about 2 min)
+cd e2e && npx playwright test text --project=chromium-desktop   # one spec, one project
 dist/uped --help
 ```
 
@@ -34,6 +34,9 @@ dist/uped --help
   them as `web.FS`; add new asset files to its `//go:embed` line. Insert user data with `textContent` only:
   the page CSP forbids inline scripts and there is no `innerHTML` anywhere.
   `go:embed` cannot reach parent directories, which is why the embed lives in `web/` itself.
+- `e2e/` Playwright specs, one shared server on 127.0.0.1:18080 with 4 MiB chunks and a 1 h TTL. Tests run
+  one at a time and each starts from an empty drop (`cleanServer` fixture in `tests/helpers.ts`); the `guard`
+  fixture fails a test on any console error it does not `allow()`. The server log is `e2e/test-results/uped-server.log`.
 
 ## Rules
 

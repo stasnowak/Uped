@@ -354,19 +354,19 @@ Notes for Phase 4:
 - Meta text contains U+00A0 between words; normalise it before comparing strings.
 
 ## Phase 4: End-to-end tests (Playwright)
-Status: Not started
+Status: Complete
 
-- [ ] `e2e/package.json` with `@playwright/test` pinned to `1.56.1` (matches `/opt/pw-browsers/chromium-1194`); `e2e/playwright.config.ts` with `webServer: { command: "go run ../cmd/uped --listen 127.0.0.1:18080 --data ./.e2e-data --ttl 1h --chunk-size 4M", url: "http://127.0.0.1:18080/healthz", reuseExistingServer: false }`, `globalSetup` wipes `.e2e-data`, projects: `chromium-desktop` and `chromium-mobile` (iPhone 13 viewport, `hasTouch`). Document `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers` and never `playwright install` locally; CI does `npx playwright install --with-deps chromium`.
-- [ ] `tests/helpers.ts`: generate fixture files of given size with deterministic content, sha256 helper, `dropFiles(page, files)` that dispatches a synthetic `drop` with a `DataTransfer`, `dropFolder(page, tree)` using a plain `Event("drop")` with stand-in directory entries (see `scripts/ui-check.js`), `apiList(request, dir)`. Start by porting every check in `scripts/ui-check.js`; delete `scripts/ui-check.*` and its `CLAUDE.md` line once the suite covers them.
-- [ ] `basic.spec.ts`: empty state renders; pick two small files → rows with correct names/sizes; download via `request.get('/d/<name>')` is byte-equal; delete removes the row; breadcrumb navigation into a folder and back.
-- [ ] `dragdrop.spec.ts` (desktop only): synthetic drop of two files lands in the current dir; drop into a subfolder view lands there.
-- [ ] `folder.spec.ts`: `setInputFiles` on the `webkitdirectory` input with a fixture directory (nested 2 levels) → tree preserved on server (`apiList` of subdirs); folder zip via `request.get('/api/zip?path=...')` returns `application/zip` with the `PK` magic and non-trivial size; folder delete removes everything.
-- [ ] `resume.spec.ts`: 20 MiB fixture with 4 MiB chunks: (a) `page.route` aborts the 2nd `PUT` once → upload still completes, server sha256 matches; (b) route aborts every `PUT` after the 1st, wait for "paused" state, `page.reload()`, unroute, `setInputFiles` the same file → observe a `HEAD /api/uploads/<id>` followed by a `PUT` with `offset=4194304`, final file byte-equal; (c) `DELETE` on cancel removes the `.part`.
-- [ ] `sse.spec.ts`: two browser contexts; upload in A → row appears in B without reload within 5 s; B sees the greyed incoming row with a percentage while a throttled (`page.route` delay) upload runs in A; delete in A disappears in B.
-- [ ] `text.spec.ts`: Add text → `.txt` row with preview; synthetic `paste` event with `text/plain` → new row; Copy button click does not throw and the toast appears; synthetic paste with an image `File` → `pasted-*.png` row.
-- [ ] `limits.spec.ts`: start a second server instance in the test with `--max-file-size 1M` (spawn `go run` on another port) → picking a 2 MiB file shows the 413 message inline; `--min-free` set to an absurd value → 507 banner.
-- [ ] `mobile.spec.ts` (mobile project): no horizontal overflow (`document.scrollingElement.scrollWidth <= innerWidth`), buttons visible above the fold, picker upload works.
-- [ ] `make e2e` target: exists since Phase 0 (guarded until `e2e/package.json` exists); confirm it runs the suite.
+- [x] `e2e/package.json` with `@playwright/test` pinned to `1.56.1` (matches `/opt/pw-browsers/chromium-1194`); `e2e/playwright.config.ts` with `webServer: { command: "go run ../cmd/uped --listen 127.0.0.1:18080 --data ./.e2e-data --ttl 1h --chunk-size 4M", url: "http://127.0.0.1:18080/healthz", reuseExistingServer: false }`, `globalSetup` wipes `.e2e-data` (done in the `webServer` command instead: Playwright starts the server before `globalSetup`), projects: `chromium-desktop` and `chromium-mobile` (iPhone 13 viewport, `hasTouch`). Document `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers` and never `playwright install` locally; CI does `npx playwright install --with-deps chromium`.
+- [x] `tests/helpers.ts`: generate fixture files of given size with deterministic content, sha256 helper, `dropFiles(page, files)` that dispatches a synthetic `drop` with a `DataTransfer`, `dropFolder(page, tree)` using a plain `Event("drop")` with stand-in directory entries (see `scripts/ui-check.js`), `apiList(request, dir)`. Start by porting every check in `scripts/ui-check.js`; delete `scripts/ui-check.*` and its `CLAUDE.md` line once the suite covers them.
+- [x] `basic.spec.ts`: empty state renders; pick two small files → rows with correct names/sizes; download via `request.get('/d/<name>')` is byte-equal; delete removes the row; breadcrumb navigation into a folder and back.
+- [x] `dragdrop.spec.ts` (desktop only): synthetic drop of two files lands in the current dir; drop into a subfolder view lands there.
+- [x] `folder.spec.ts`: `setInputFiles` on the `webkitdirectory` input with a fixture directory (nested 2 levels) → tree preserved on server (`apiList` of subdirs); folder zip via `request.get('/api/zip?path=...')` returns `application/zip` with the `PK` magic and non-trivial size; folder delete removes everything.
+- [x] `resume.spec.ts`: 20 MiB fixture with 4 MiB chunks: (a) `page.route` aborts the 2nd `PUT` once → upload still completes, server sha256 matches; (b) route aborts every `PUT` after the 1st, wait for "paused" state, `page.reload()`, unroute, `setInputFiles` the same file → observe a `HEAD /api/uploads/<id>` followed by a `PUT` with `offset=4194304`, final file byte-equal; (c) `DELETE` on cancel removes the `.part`.
+- [x] `sse.spec.ts`: two browser contexts; upload in A → row appears in B without reload within 5 s; B sees the greyed incoming row with a percentage while a throttled (`page.route` delay) upload runs in A; delete in A disappears in B.
+- [x] `text.spec.ts`: Add text → `.txt` row with preview; synthetic `paste` event with `text/plain` → new row; Copy button click does not throw and the toast appears; synthetic paste with an image `File` → `pasted-*.png` row.
+- [x] `limits.spec.ts`: start a second server instance in the test with `--max-file-size 1M` (spawn `go run` on another port; built once with `go build` instead, see summary) → picking a 2 MiB file shows the 413 message inline; `--min-free` set to an absurd value → 507 banner.
+- [x] `mobile.spec.ts` (mobile project): no horizontal overflow (`document.scrollingElement.scrollWidth <= innerWidth`; measured against `documentElement.clientWidth`, see summary), buttons visible above the fold, picker upload works.
+- [x] `make e2e` target: exists since Phase 0 (guarded until `e2e/package.json` exists); confirm it runs the suite.
 
 ### Verification Plan
 - `cd e2e && npm ci && PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers npx playwright test` → all specs pass, output ends with `N passed`.
@@ -374,7 +374,61 @@ Status: Not started
 - Run the suite twice in a row (`--repeat-each 2`) → no flaky failures.
 
 ### Phase Summary
-_(write when phase completes)_
+Completed 2026-10-07. Verification results:
+
+| Check | Result |
+|---|---|
+| `cd e2e && npm ci && npx playwright test` (via `make e2e`) | `73 passed (54.3s)`: 36 desktop, 37 mobile |
+| `npx playwright test --project=chromium-mobile` | `37 passed` |
+| `npx playwright test --repeat-each 2` | `146 passed (1.8m)`, no flaky tests |
+
+Extra checks: the timing-sensitive tests (incoming progress, reload resume, cancel, lost finish) passed
+`--repeat-each 5` on both projects (70 of 70). `CI=1` runs write `playwright-report/`. Mutation checks
+confirmed the suite fails when it should: breaking resume in `app.js` failed the reload test (first
+request became `POST` instead of `HEAD`), a 420 px minimum width failed four overflow tests, and a
+`console.error` at boot failed every test through the `guard` fixture.
+
+What exists now:
+- `e2e/package.json` (`@playwright/test` pinned to `1.56.1`, lockfile committed), `e2e/playwright.config.ts`.
+- `e2e/tests/helpers.ts`: deterministic fixtures (`bytes`, `fixture`, `fixtureTree`), `sha256`, API helpers
+  (`apiList`, `namesIn`, `apiUpload` through the real chunk protocol, `download`, `resetServer`), page helpers
+  (`dropFiles`, `dropFolder` with stand-in entries read in batches, `dragEnter`, `paste`, `metaRe`), `startServer`
+  for extra servers, and the `test` export with two auto fixtures: `cleanServer` (empties the drop before
+  each test) and `guard` (fails on unexpected console or page errors; `allow(re)`, `watch(page)`; accepts `confirm()`).
+- Specs: `basic` (5 tests), `dragdrop` (5, desktop only), `folder` (5), `resume` (5), `sse` (5), `text` (9),
+  `limits` (2), `mobile` (6, mobile only). Every check from `scripts/ui-check.js` is ported; that script is deleted.
+
+Decisions and differences from the plan:
+- **No `globalSetup`.** Playwright starts `webServer` before `globalSetup`, so wiping `.e2e-data` there would
+  delete the directory under a running server. The wipe is part of the `webServer` command instead. The
+  server log goes to `e2e/test-results/uped-server.log` (CI uploads it on failure) because 4xx answers are
+  logged as warnings and would flood the test output.
+- **Tests run one at a time** (`workers: 1`) against the shared server, each starting from an empty drop.
+  The whole suite takes about a minute, so isolation per folder was not worth the complexity.
+- `chromium-desktop` uses Playwright's "Desktop Chrome" descriptor, which sends a Windows user agent (the
+  server labels it "Windows Chrome"). `chromium-mobile` is iPhone 13 (390x664, touch, iPhone UA, labelled
+  "iPhone Safari") rendered by Chromium. `limits` runs in both projects, `dragdrop` only on desktop.
+- `limits.spec.ts` builds uped once per worker with `go build` (set `UPED_BIN` to skip that) and starts it
+  on `127.0.0.1:0`, reading the port from the log as `scripts/smoke.sh` does. `go run` was avoided there
+  because it does not forward SIGTERM to the program.
+- **Resume (b)** does not wait out the 19 s of retry delays: the test fires `online` events, which wake a
+  waiting retry just as a reconnecting phone does, until the item pauses. It then checks the exact request
+  sequence after the reload: `HEAD`, four `PUT`s from `offset=4194304`, `finish`.
+- **Overflow is measured against `documentElement.clientWidth`.** With mobile emulation Chromium zooms out to
+  fit content that is too wide and `innerWidth` grows with it, so the old `ui-check.js` phone check
+  (`scrollWidth - innerWidth`) could never fail. Its 360 px check had no `isMobile` and was fine.
+- Copy tests read the real clipboard (permissions granted): one through `navigator.clipboard`, one with
+  `isSecureContext` forced to false so the `execCommand` fallback runs (as on a LAN IP), including a note
+  longer than its preview, and one with `execCommand` blocked to show the manual-copy dialog.
+- Added beyond the plan: dedupe to `name (1).ext`, skip of a file the server already has, a lost `finish`
+  answer not duplicating the file, uploads into subfolders showing as incoming in the parent, a device
+  viewing a deleted folder falling back to Home, notes saved into the current folder, the too-long-text
+  message, and the folder zip downloaded through the browser.
+- **`web/app.js` fix:** when the answer to `finish` was lost and the re-create says `done`, the item now
+  shows "Uploaded" instead of "Already on the server" (the bytes were this tab's own).
+
+Notes for Phase 6: the e2e job needs Go (the config uses `go run`) and Node 22, then
+`npx playwright install --with-deps chromium`. Upload `e2e/playwright-report` and `e2e/test-results` on failure.
 
 ## Phase 5: Installer, OpenRC service, documentation
 Status: Not started

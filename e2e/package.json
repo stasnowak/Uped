@@ -1,0 +1,11 @@
+{
+  "name": "uped-e2e",
+  "private": true,
+  "description": "Playwright end-to-end tests for uped, run against the real server",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1"
+  }
+}
