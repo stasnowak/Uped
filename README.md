@@ -90,7 +90,7 @@ Bookmark that address on your devices. That is all.
   `wget -qO- https://raw.githubusercontent.com/stasnowak/Uped/main/install.sh | sh -s -- --uninstall`
 - **Remove everything**, including uploaded files, logs and the `uped` user: the same with `--purge`.
 
-`sh install.sh --help` lists the other options.
+Add `--help` the same way to see the other options.
 
 ### Service and logs
 
@@ -116,7 +116,7 @@ the same settings are command-line flags, or `UPED_*` environment variables
 | `UPED_TTL` | `--ttl` | `168h` | delete items this long after upload (`7d`, `24h`; `0` never) |
 | `UPED_MIN_FREE` | `--min-free` | `1G` | refuse uploads that would leave less free disk than this |
 | `UPED_MAX_FILE_SIZE` | `--max-file-size` | `0` | largest file accepted (`4G`, `500M`; `0` no limit) |
-| `UPED_CHUNK_SIZE` | `--chunk-size` | `16M` | upload chunk size browsers use |
+| `UPED_CHUNK_SIZE` | `--chunk-size` | `16M` | upload chunk size browsers use (environment only; for the service use `UPED_EXTRA_ARGS`) |
 | `UPED_EXTRA_ARGS` | | | extra flags for the service, e.g. `--chunk-size 8M` |
 
 Sizes take `K`, `M`, `G` or `T` (powers of 1024). `uped --help` shows them all
@@ -131,7 +131,8 @@ docker run -d --name uped --restart unless-stopped \
   -p 8080:8080 -v uped-data:/data ghcr.io/stasnowak/uped
 ```
 
-Settings are the `UPED_*` variables above, for example `-e UPED_TTL=72h`. The
+Settings are the `UPED_*` variables above, for example `-e UPED_TTL=72h`
+(the image fixes the address to `:8080` and the data folder to `/data`). The
 image runs as uid 65532, so a host folder mounted at `/data` must be writable
 by that user: `sudo chown 65532:65532 /srv/uped` before `-v /srv/uped:/data`.
 The log goes to `docker logs uped`. Open the host's address, not the

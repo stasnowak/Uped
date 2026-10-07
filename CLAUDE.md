@@ -41,6 +41,11 @@ dist/uped --help
   no root and touches nothing outside the prefix; that is what the local tests use.
 - `scripts/test-install-alpine.sh` installs for real as root under OpenRC. CI runs it in `docker run alpine`;
   never run it on a real machine. It is the only test of the init script under supervise-daemon.
+- `.github/workflows/ci.yml` runs on every push: Go checks and smoke test, arm64/amd64 builds, shellcheck and
+  installer tests, the real Alpine/OpenRC install, a Docker build and run, and the Playwright suite. Read
+  results with the GitHub MCP `actions_list` / `get_job_logs` tools. `release.yml` runs on `v*` tags: GitHub
+  Release from `make cross`, then `ghcr.io/stasnowak/uped` (lowercase; the repo is `stasnowak/Uped`).
+- `Dockerfile`: scratch image, uid 65532, ships an empty `/data` owned by that uid so named volumes are writable.
 - `e2e/` Playwright specs, one shared server on 127.0.0.1:18080 with 4 MiB chunks and a 1 h TTL. Tests run
   one at a time and each starts from an empty drop (`cleanServer` fixture in `tests/helpers.ts`); the `guard`
   fixture fails a test on any console error it does not `allow()`. The server log is `e2e/test-results/uped-server.log`.

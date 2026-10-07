@@ -504,14 +504,14 @@ busybox case runs) and `make cross ARCHES=amd64 && docker run --rm -v "$PWD:/src
 scripts/test-install-alpine.sh dist`. The README's Docker section is already written.
 
 ## Phase 6: CI, releases, Docker image
-Status: Not started
+Status: Complete
 
-- [ ] `.github/workflows/ci.yml` on push + PR: `actions/checkout`, `actions/setup-go` (`go-version-file: go.mod`, cache), `go vet ./...`, `go test -race ./...`, `sh scripts/test-install.sh`, cross-build matrix `GOOS=linux GOARCH={amd64,arm64} CGO_ENABLED=0`, then an `e2e` job: `actions/setup-node` (22), `cd e2e && npm ci && npx playwright install --with-deps chromium && npx playwright test`, upload `playwright-report` on failure. Use the current major versions of each action at implementation time (research found checkout v7, setup-go v7, action-gh-release v3, docker login/buildx v4, build-push v7 as of Oct 2026; verify on the Marketplace).
-- [ ] `.github/workflows/release.yml` on `push: tags: ['v*']`, `permissions: {contents: write, packages: write}`: build both arches with `-X main.version=${GITHUB_REF_NAME}`, `tar czf uped_linux_<arch>.tar.gz uped`, `sha256sum *.tar.gz > checksums.txt`, `softprops/action-gh-release` with `files`, `generate_release_notes: true`, `fail_on_unmatched_files: true`.
-- [ ] `Dockerfile`: `FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS build` (or newer), `ARG TARGETOS TARGETARCH`, `CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o /out/uped ./cmd/uped`; `FROM scratch`, `COPY --from=build /out/uped /uped`, `USER 65532:65532`, `VOLUME /data`, `EXPOSE 8080`, `ENTRYPOINT ["/uped","--data","/data","--listen",":8080"]`. Add `.dockerignore`.
-- [ ] Release workflow image job: `docker/login-action` to `ghcr.io` with `GITHUB_TOKEN`, `docker/metadata-action` (`ghcr.io/stasnowak/uped`, tags `semver {{version}}`, `{{major}}.{{minor}}`, `latest`), `docker/setup-buildx-action`, `docker/build-push-action` with `platforms: linux/amd64,linux/arm64`, `push: true`, `cache-from/to: type=gha`. No QEMU needed (Go cross-compiles).
-- [ ] README: Docker section (`docker run -d -p 8080:8080 -v uped-data:/data ghcr.io/stasnowak/uped`), note that the image runs as uid 65532 so a bind-mounted host dir must be writable by it.
-- [ ] `Makefile cross` target produces the same artifact names as the release job so `install.sh --binary` can be tested against them.
+- [x] `.github/workflows/ci.yml` on push + PR: `actions/checkout`, `actions/setup-go` (`go-version-file: go.mod`, cache), `go vet ./...`, `go test -race ./...`, `sh scripts/test-install.sh`, cross-build matrix `GOOS=linux GOARCH={amd64,arm64} CGO_ENABLED=0`, then an `e2e` job: `actions/setup-node` (22), `cd e2e && npm ci && npx playwright install --with-deps chromium && npx playwright test`, upload `playwright-report` on failure. Use the current major versions of each action at implementation time (research found checkout v7, setup-go v7, action-gh-release v3, docker login/buildx v4, build-push v7 as of Oct 2026; verify on the Marketplace).
+- [x] `.github/workflows/release.yml` on `push: tags: ['v*']`, `permissions: {contents: write, packages: write}`: build both arches with `-X main.version=${GITHUB_REF_NAME}`, `tar czf uped_linux_<arch>.tar.gz uped`, `sha256sum *.tar.gz > checksums.txt`, `softprops/action-gh-release` with `files`, `generate_release_notes: true`, `fail_on_unmatched_files: true`.
+- [x] `Dockerfile`: `FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS build` (or newer), `ARG TARGETOS TARGETARCH`, `CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o /out/uped ./cmd/uped`; `FROM scratch`, `COPY --from=build /out/uped /uped`, `USER 65532:65532`, `VOLUME /data`, `EXPOSE 8080`, `ENTRYPOINT ["/uped","--data","/data","--listen",":8080"]`. Add `.dockerignore`.
+- [x] Release workflow image job: `docker/login-action` to `ghcr.io` with `GITHUB_TOKEN`, `docker/metadata-action` (`ghcr.io/stasnowak/uped`, tags `semver {{version}}`, `{{major}}.{{minor}}`, `latest`), `docker/setup-buildx-action`, `docker/build-push-action` with `platforms: linux/amd64,linux/arm64`, `push: true`, `cache-from/to: type=gha`. No QEMU needed (Go cross-compiles).
+- [x] README: Docker section (`docker run -d -p 8080:8080 -v uped-data:/data ghcr.io/stasnowak/uped`), note that the image runs as uid 65532 so a bind-mounted host dir must be writable by it.
+- [x] `Makefile cross` target produces the same artifact names as the release job so `install.sh --binary` can be tested against them.
 
 ### Verification Plan
 - `make cross && ls dist/` → `uped_linux_amd64.tar.gz uped_linux_arm64.tar.gz checksums.txt`; `cd dist && sha256sum -c checksums.txt` → both `OK`.
@@ -521,27 +521,133 @@ Status: Not started
 - After the first push to GitHub: CI run on the branch is green (check via the GitHub MCP `actions_list`/`actions_get` tools).
 
 ### Phase Summary
-_(write when phase completes)_
+Completed 2026-10-07. Verification results:
+
+| Check | Result |
+|---|---|
+| `make cross && ls dist/`; `cd dist && sha256sum -c checksums.txt` | both tarballs and `checksums.txt`; both `OK` |
+| `tar xzf dist/uped_linux_arm64.tar.gz -O uped \| file -` | `ELF 64-bit LSB executable, ARM aarch64 ... statically linked ... stripped` |
+| PyYAML parse of `.github/workflows/*.yml` | exit 0; `actionlint` 1.7.12 (installed into the scratchpad only) also clean |
+| Docker | not buildable here (no daemon), so CI builds it on every push instead of waiting for the first release: both platforms build, and the amd64 image runs against a named volume (version, `/healthz`, note written and read back, data kept across `docker restart`) |
+| CI on the branch | run 1 (`b9cdae4`), https://github.com/stasnowak/Uped/actions/runs/37593514739: **all 8 jobs green on the first push**. Logs checked: Playwright `73 passed (55.2s)`, `ALPINE INSTALL TEST OK` (Alpine 3.22 and latest), every Docker step succeeded |
+
+What exists now:
+- `.github/workflows/ci.yml` (push to any branch, and pull requests; older runs of the same ref are cancelled):
+  `test` (no `require` in go.mod, gofmt, vet, race tests, smoke test), `build` (amd64 and arm64, static check),
+  `installer` (shellcheck of all shipped and test scripts, no bash in install.sh, `scripts/test-install.sh`
+  with busybox installed), `installer-alpine` (matrix Alpine 3.22 and latest: `make cross ARCHES=amd64`, then
+  `scripts/test-install-alpine.sh` in `docker run alpine`), `docker`, and `e2e` (Go plus Node 22,
+  `npx playwright install --with-deps chromium`, report and server log uploaded on failure).
+- `.github/workflows/release.yml` (tags `v*`): tests, `make cross VERSION=<tag>`, checks the checksums and that
+  the binary reports the tag, installs the tarball with `install.sh --binary --prefix`, then
+  `softprops/action-gh-release@v3` with the three files, generated notes and `fail_on_unmatched_files`. The
+  `image` job (after `binaries`) pushes `ghcr.io/stasnowak/uped` for amd64 and arm64 with tags `0.1.0`, `0.1`
+  and `latest`. A tag containing `-` (`v0.2.0-rc1`) becomes a pre-release and does not get `latest` on either side.
+- `Dockerfile`: `golang:1.24-alpine` build stage on `$BUILDPLATFORM` cross-compiling to `$TARGETARCH`, then
+  `FROM scratch` with `/uped`, an empty `/data` owned by 65532, `USER 65532:65532`, `VOLUME /data`,
+  `EXPOSE 8080`, `ENTRYPOINT ["/uped","--data","/data","--listen",":8080"]`. `.dockerignore`.
+- README Docker section (written in Phase 5) and `CLAUDE.md` notes on CI, releases and the image.
+
+Decisions and differences from the plan:
+- Action versions: `checkout@v7`, `setup-go@v7`, `action-gh-release@v3`, `docker/login-action@v4`,
+  `setup-buildx-action@v4`, `metadata-action@v6`, `build-push-action@v7` as the research found them today;
+  `setup-node@v6` and `upload-artifact@v5` were not in the research and could not be looked up (this
+  session may read only `stasnowak/uped` on GitHub). All resolved in run 1 except `upload-artifact@v5`,
+  which only runs when e2e fails, so it is still unproven; if it ever fails to resolve, change its version.
+- The release job builds with `make cross`, so the release assets and the files `install.sh --binary` is
+  tested with come from the same target.
+- **The empty `/data` in the image** is what makes a fresh named volume writable by uid 65532 (Docker copies
+  the image's directory and its owner into a new volume). CI's named-volume run proves it. Bind mounts still
+  need a `chown 65532:65532` on the host, as the README says.
+- `release.yml` is the one workflow not run yet: it only triggers on a tag, and tagging publishes a release
+  and an image, which is the user's decision (Phase 7). A `v0.1.0-rc1` tag is a safe first run.
 
 ## Phase 7: First release and real-world check
-Status: Not started
+Status: In progress: the agent part is done; the rest is the user's (pull request, merge, tag, field check)
 
-- [ ] Final pass: `go vet`, `go test -race`, e2e, `scripts/smoke.sh`, `scripts/test-install.sh` all green on the branch; README reviewed end to end; `CLAUDE.md` current.
-- [ ] Bump nothing (version comes from the tag). Confirm the GitHub repo name/case used in URLs (`stasnowak/Uped` for raw/install URLs; `ghcr.io/stasnowak/uped` lowercase for the image).
+- [x] Final pass: `go vet`, `go test -race`, e2e, `scripts/smoke.sh`, `scripts/test-install.sh` all green on the branch; README reviewed end to end; `CLAUDE.md` current.
+- [x] Bump nothing (version comes from the tag). Confirm the GitHub repo name/case used in URLs (`stasnowak/Uped` for raw/install URLs; `ghcr.io/stasnowak/uped` lowercase for the image).
 - [ ] Open a PR from `claude/home-file-transfer-app-9os7eu` to `main` **only when the user asks**; merging and tagging `v0.1.0` are the user's actions (tag push triggers release.yml).
 - [ ] After `v0.1.0` exists: verify the release has 3 assets and the ghcr.io package is public; run `install.sh` with no flags in a throwaway Alpine LXC on the user's Proxmox (user-run; cannot be automated from this environment) and confirm: service starts, URL printed is reachable from a phone, a 1 GB upload from a phone completes, resume after toggling Wi-Fi works, expiry sweeper logs a run.
 - [ ] Record any field issues as checkboxes in a new **Phase 8: Field fixes** and address them.
 
 ### Verification Plan
 - GitHub MCP: `list_releases` for `stasnowak/Uped` shows `v0.1.0` with `uped_linux_amd64.tar.gz`, `uped_linux_arm64.tar.gz`, `checksums.txt`.
-- `curl -fsSL https://github.com/stasnowak/Uped/releases/latest/download/checksums.txt` → three lines.
+- `curl -fsSL https://github.com/stasnowak/Uped/releases/latest/download/checksums.txt` → two lines, one per tarball (corrected from "three": the release has three assets, `checksums.txt` lists the two tarballs).
 - User confirms the LXC checklist above (manual).
 
 ### Phase Summary
-_(write when phase completes)_
+Agent part done 2026-10-07; this phase stays open until the user's steps below.
+
+| Check | Result |
+|---|---|
+| `gofmt -l .`, no `require` in go.mod, `go vet ./...`, `go test -race -count=1 ./...` | clean; all five packages `ok` |
+| `make e2e` | `73 passed (58.4s)` |
+| `make build && sh scripts/smoke.sh` | `SMOKE OK` |
+| `sh scripts/test-install.sh` | `INSTALL TEST OK` |
+| CI on the branch | green (see Phase 6), including the real Alpine install and the Docker run |
+| README end to end | reviewed. Fixed: `UPED_CHUNK_SIZE` works only as an environment variable (the service needs `UPED_EXTRA_ARGS`); Docker ignores `UPED_LISTEN`/`UPED_DATA_DIR` because the entrypoint sets them; `--help` is passed the same way as other installer options |
+| Repository name | the GitHub API reports `https://github.com/stasnowak/Uped`, matching every raw, release and clone URL in `install.sh` and the README; the image is `ghcr.io/stasnowak/uped` in lowercase, hard-coded in `release.yml` because `github.repository` has a capital U |
+
+Also corrected this phase's verification plan: `checksums.txt` has two lines, not three.
+
+Left for the user, in order (details in **Deployment Plan**): ask for (or open) the pull request and merge it;
+tag `v0.1.0` (optionally `v0.1.0-rc1` first); make the ghcr.io package public; create the Proxmox container,
+run the installer and do the field check; then report anything odd so it becomes Phase 8.
 
 ## Final Recap
-_(write when all phases complete: summary of the entire piece of work)_
+Written 2026-10-07, when everything an agent can do was done. Phase 7's remaining steps (pull request,
+merge, `v0.1.0` tag, check on a real Proxmox container and phones) are the user's.
+
+uped is a single static Go binary (about 6 MB, standard library only, Go 1.24) that serves one embedded web
+page. Any device on the LAN can upload files, folders, pasted text and images, and any device can download
+them; items expire 7 days after upload. Built in phases:
+
+- **Store and naming (Phase 1):** everything on disk goes through `os.Root`; names are sanitised for every OS,
+  deduplicated case-insensitively as `name (1).ext`, and fuzzed. Chunked uploads resume by offset and by
+  fingerprint (re-dropping a folder sends only what is missing), with a disk-space guard and an expiry sweeper.
+- **HTTP server (Phase 2):** tus-shaped upload API, Range downloads served as sandboxed attachments,
+  streamed zips, server-sent events, idle deadlines instead of whole-request timeouts, JSON errors.
+- **Web UI (Phase 3):** vanilla JS with no build step and no `innerHTML`, a strict CSP, plain-HTTP friendly
+  (XHR uploads, `execCommand` copy fallback). File manager with breadcrumbs, drag and drop of folders,
+  paste, live updates, resumable queue, light and dark, usable at 360 px.
+- **Tests (Phase 4):** Go unit tests (names 96.6%, store 84.3%), `scripts/smoke.sh`, and 73 Playwright tests
+  on desktop and iPhone-sized Chromium, all against the real binary.
+- **Install (Phase 5):** `wget -qO- .../install.sh | sh` inside an Alpine LXC installs the release for the CPU
+  after checking its sha256, creates the `uped` user and an OpenRC service, and prints the URL. Re-run
+  upgrades; `--uninstall` and `--purge` remove it. Tested without root (`scripts/test-install.sh`, including a
+  busybox-only run) and for real under OpenRC in Alpine containers in CI.
+- **CI and releases (Phase 6):** every push runs all of the above plus a Docker build and run; a `v*` tag
+  publishes the tarballs, `checksums.txt` and `ghcr.io/stasnowak/uped` (amd64 and arm64).
+
+Things a maintainer should know: the plan's decisions held, apart from the changes recorded in each Phase
+Summary (embed location, idle deadlines, case-insensitive names, restart-after-replace in the installer, no
+e2e `globalSetup`). `install.sh` embeds the OpenRC files, so edit `packaging/openrc/` and the heredocs together.
+The README is the user documentation; `CLAUDE.md` is the contributor guide.
 
 ## Deployment Plan
-_(write when all phases complete: step-by-step deployment instructions)_
+1. **Merge.** Open a pull request from `claude/home-file-transfer-app-9os7eu` to `main` (an agent opens it only
+   when asked) and merge it once CI is green. The one-line installer is fetched from `main`, so it works
+   only after this.
+2. **Release.** Tag the merge commit: `git tag v0.1.0 && git push origin v0.1.0`. To try the release workflow
+   first, push `v0.1.0-rc1`: it publishes a pre-release and the image tag `0.1.0-rc1` without touching
+   "latest", so the installer and `docker pull` ignore it. `release.yml` tests, builds and
+   publishes the release with `uped_linux_amd64.tar.gz`, `uped_linux_arm64.tar.gz` and `checksums.txt`, then
+   pushes `ghcr.io/stasnowak/uped:0.1.0`, `:0.1` and `:latest`.
+3. **Make the image public.** New ghcr.io packages start private. On GitHub: your profile, Packages, `uped`,
+   Package settings, Change visibility, Public. Skip this if you will not use Docker.
+4. **Check the release.** `curl -fsSL https://github.com/stasnowak/Uped/releases/latest/download/checksums.txt`
+   prints two lines (one per tarball; the release has three assets).
+5. **Create the container** on Proxmox as in the README's quick start (Alpine template, 1 vCPU, 512 MB,
+   2 GB disk, unprivileged, `--onboot 1`), optionally with a data volume at `/var/lib/uped`. Give it a fixed
+   address (static IP or DHCP reservation) so bookmarks keep working.
+6. **Install** inside it (`pct enter <id>`): `wget -qO- https://raw.githubusercontent.com/stasnowak/Uped/main/install.sh | sh`.
+   It ends by printing `http://<ip>:8080/`. If wget reports a TLS error, run `apk add ca-certificates` first.
+7. **Field check** (Phase 7): open the URL on a phone and a computer; upload about 1 GB from the phone;
+   toggle Wi-Fi off and on mid-upload and confirm it resumes; reboot the container and confirm the service
+   comes back. To see the sweeper work without waiting 7 days, set `UPED_TTL="10m"` in `/etc/conf.d/uped`,
+   `rc-service uped restart`, upload a file and, within 25 minutes, find `expiry sweep files=1` in
+   `/var/log/uped/uped.log`; then set it back to `168h` and restart.
+8. **Upgrades** later: tag a new version, then re-run the step 6 command in the container.
+
+Rollback: `... | sh -s -- --version v0.1.0` reinstalls a given release and keeps settings and files.
