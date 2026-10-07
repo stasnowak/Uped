@@ -431,15 +431,15 @@ Notes for Phase 6: the e2e job needs Go (the config uses `go run`) and Node 22, 
 `npx playwright install --with-deps chromium`. Upload `e2e/playwright-report` and `e2e/test-results` on failure.
 
 ## Phase 5: Installer, OpenRC service, documentation
-Status: Not started
+Status: Complete
 
-- [ ] `packaging/openrc/uped.initd` (template, `#!/sbin/openrc-run`): `supervisor=supervise-daemon`, `command=/usr/local/bin/uped`, `command_args` built from `/etc/conf.d/uped` variables (`--listen "$UPED_LISTEN" --data "$UPED_DATA_DIR" $UPED_EXTRA_ARGS`), `command_user="uped:uped"`, `directory`, `pidfile=/run/uped.pid`, `output_log`/`error_log=/var/log/uped/uped.log`, `respawn_delay=5`, `respawn_max=0`, `umask=027`, `depend() { need net; after firewall; use dns logger; }`, `start_pre()` with `checkpath -d -m 0750 -o uped:uped` for data and log dirs.
-- [ ] `packaging/openrc/uped.confd`: `UPED_LISTEN=":8080"`, `UPED_DATA_DIR="/var/lib/uped"`, `UPED_TTL="168h"`, `UPED_MIN_FREE="1G"`, `UPED_MAX_FILE_SIZE="0"`, `UPED_EXTRA_ARGS=""`, each commented. (The init script passes these as flags; conf.d vars are not exported.)
-- [ ] `install.sh` (POSIX sh, `set -eu`, everything in `main()` invoked on the last line so a truncated download cannot run half a script): root check; Alpine + OpenRC check (`/etc/alpine-release`, `command -v rc-service`) with a clear message otherwise; arch map (`x86_64|amd64→amd64`, `aarch64|arm64→arm64`); `dl()` using curl else busybox wget; `UPED_VERSION` override else `releases/latest/download/`; download `uped_linux_<arch>.tar.gz` + `checksums.txt` to `mktemp -d`, `sha256sum -c`; extract; compare hash with existing binary → "already up to date" skips restart; else `rc-service uped stop` (ignore failure), `chmod 755`, `mv -f` into `/usr/local/bin/uped`; `addgroup -S uped; adduser -S -D -H -h /var/lib/uped -s /sbin/nologin -G uped uped`; create `/var/lib/uped` and `/var/log/uped` (chown top-level only, no `-R`); always (re)write `/etc/init.d/uped`; write `/etc/conf.d/uped` only if absent; `rc-update add uped default`; `rc-service uped start` (or `restart`); banner with `http://<ip>:8080` where ip = `ip -4 route get 1 | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}'` (fallback `hostname -i`).
-- [ ] `install.sh` flags: `--uninstall` (stop, `rc-update del`, remove init script and binary, keep conf and data), `--purge` (also remove `/etc/conf.d/uped`, `/var/lib/uped`, `/var/log/uped`, `deluser uped`), `--version vX.Y.Z`, and for testing: `--binary PATH` (skip download), `--prefix DIR` (install under DIR, implies `--no-service`), `--no-service` (skip rc-update/rc-service). Usage text on `--help`. Usable as `curl -fsSL URL | sh -s -- --uninstall`.
-- [ ] `scripts/test-install.sh`: builds `dist/uped`, runs `install.sh --binary dist/uped --prefix "$tmp"`, asserts the binary, init script, conf.d exist with the right modes, `sh -n "$tmp/etc/init.d/uped"` passes, re-run prints "already up to date", `--uninstall --prefix` removes binary and init script but keeps conf.d, `--purge` removes everything. Runs without root and without OpenRC.
-- [ ] `README.md`: pitch; screenshot placeholder; **Quick start on Proxmox** (`pveam update`, download the latest `alpine-*` template, `pct create` example with 1 vCPU / 512 MB / 2 GB rootfs, unprivileged, DHCP or static IP, optional `pct set <id> -mp0 local-lvm:50,mp=/var/lib/uped` for a bigger data volume), the one-liner for both curl and wget (`wget -qO- URL | sh` since the Alpine template lacks curl), what gets installed where, configuration table, upgrade (re-run), uninstall/purge, logs (`tail -f /var/log/uped/uped.log`, `rc-service uped status`), Docker usage (Phase 6), how uploads/expiry work, limitations (HTTP only, iOS background, resume needs re-drop), security note (no auth: LAN only, never port-forward), building from source (`apk add go git && go build ./cmd/uped`), license.
-- [ ] `docs/CONFIG.md` only if README grows past ~250 lines; otherwise keep it in README.
+- [x] `packaging/openrc/uped.initd` (template, `#!/sbin/openrc-run`): `supervisor=supervise-daemon`, `command=/usr/local/bin/uped`, `command_args` built from `/etc/conf.d/uped` variables (`--listen "$UPED_LISTEN" --data "$UPED_DATA_DIR" $UPED_EXTRA_ARGS`), `command_user="uped:uped"`, `directory`, `pidfile=/run/uped.pid`, `output_log`/`error_log=/var/log/uped/uped.log`, `respawn_delay=5`, `respawn_max=0`, `umask=027`, `depend() { need net; after firewall; use dns logger; }`, `start_pre()` with `checkpath -d -m 0750 -o uped:uped` for data and log dirs.
+- [x] `packaging/openrc/uped.confd`: `UPED_LISTEN=":8080"`, `UPED_DATA_DIR="/var/lib/uped"`, `UPED_TTL="168h"`, `UPED_MIN_FREE="1G"`, `UPED_MAX_FILE_SIZE="0"`, `UPED_EXTRA_ARGS=""`, each commented. (The init script passes these as flags; conf.d vars are not exported.)
+- [x] `install.sh` (POSIX sh, `set -eu`, everything in `main()` invoked on the last line so a truncated download cannot run half a script): root check; Alpine + OpenRC check (`/etc/alpine-release`, `command -v rc-service`) with a clear message otherwise; arch map (`x86_64|amd64→amd64`, `aarch64|arm64→arm64`); `dl()` using curl else busybox wget; `UPED_VERSION` override else `releases/latest/download/`; download `uped_linux_<arch>.tar.gz` + `checksums.txt` to `mktemp -d`, `sha256sum -c`; extract; compare hash with existing binary → "already up to date" skips restart; else `rc-service uped stop` (ignore failure), `chmod 755`, `mv -f` into `/usr/local/bin/uped`; `addgroup -S uped; adduser -S -D -H -h /var/lib/uped -s /sbin/nologin -G uped uped`; create `/var/lib/uped` and `/var/log/uped` (chown top-level only, no `-R`); always (re)write `/etc/init.d/uped`; write `/etc/conf.d/uped` only if absent; `rc-update add uped default`; `rc-service uped start` (or `restart`); banner with `http://<ip>:8080` where ip = `ip -4 route get 1 | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}'` (fallback `hostname -i`).
+- [x] `install.sh` flags: `--uninstall` (stop, `rc-update del`, remove init script and binary, keep conf and data), `--purge` (also remove `/etc/conf.d/uped`, `/var/lib/uped`, `/var/log/uped`, `deluser uped`), `--version vX.Y.Z`, and for testing: `--binary PATH` (skip download), `--prefix DIR` (install under DIR, implies `--no-service`), `--no-service` (skip rc-update/rc-service). Usage text on `--help`. Usable as `curl -fsSL URL | sh -s -- --uninstall`.
+- [x] `scripts/test-install.sh`: builds `dist/uped`, runs `install.sh --binary dist/uped --prefix "$tmp"`, asserts the binary, init script, conf.d exist with the right modes, `sh -n "$tmp/etc/init.d/uped"` passes, re-run prints "already up to date", `--uninstall --prefix` removes binary and init script but keeps conf.d, `--purge` removes everything. Runs without root and without OpenRC.
+- [x] `README.md`: pitch; screenshot placeholder; **Quick start on Proxmox** (`pveam update`, download the latest `alpine-*` template, `pct create` example with 1 vCPU / 512 MB / 2 GB rootfs, unprivileged, DHCP or static IP, optional `pct set <id> -mp0 local-lvm:50,mp=/var/lib/uped` for a bigger data volume), the one-liner for both curl and wget (`wget -qO- URL | sh` since the Alpine template lacks curl), what gets installed where, configuration table, upgrade (re-run), uninstall/purge, logs (`tail -f /var/log/uped/uped.log`, `rc-service uped status`), Docker usage (Phase 6), how uploads/expiry work, limitations (HTTP only, iOS background, resume needs re-drop), security note (no auth: LAN only, never port-forward), building from source (`apk add go git && go build ./cmd/uped`), license.
+- [x] `docs/CONFIG.md` only if README grows past ~250 lines; otherwise keep it in README. (README is 205 lines; no `docs/CONFIG.md`.)
 
 ### Verification Plan
 - `sh -n install.sh && sh -n packaging/openrc/uped.initd` → exit 0.
@@ -448,7 +448,60 @@ Status: Not started
 - `grep -n 'bash' install.sh` → no matches (POSIX only).
 
 ### Phase Summary
-_(write when phase completes)_
+Completed 2026-10-07. Verification results:
+
+| Check | Result |
+|---|---|
+| `sh -n install.sh && sh -n packaging/openrc/uped.initd` | exit 0 (also `busybox sh -n`) |
+| `sh scripts/test-install.sh` | `INSTALL TEST OK`, 18 checks in about 2 s under `dash` |
+| `shellcheck -s sh install.sh` | no findings. shellcheck 0.9.0 was installed with `apt-get install shellcheck` for this; the init script, conf.d (with `-e SC2034`) and both test scripts are clean too |
+| `grep -n 'bash' install.sh` | no matches |
+
+What exists now:
+- `install.sh`: POSIX sh, `set -eu`, all work in `main "$@"` on the last line. Flags: `--version`, `--uninstall`,
+  `--purge`, `--no-service`, `--binary PATH` (a binary, or a release tarball whose neighbouring `checksums.txt`
+  is checked), `--prefix DIR`, `--help`; unknown options exit 2. `UPED_VERSION` and `UPED_RELEASES_URL` (base of
+  the releases URLs; the tests point it at a local server) are read from the environment. Downloads use curl,
+  else wget, from `releases/latest/download/` or `releases/download/<tag>/`, with the sha256 checked before
+  anything is written. After starting the service it waits up to 10 s for `/healthz` and fails with the log
+  tail if it never answers, then prints the URL from `ip -4 route get 1` (fallback `hostname -i`).
+- `packaging/openrc/uped.initd` and `uped.confd`, identical to what `install.sh` writes (checked by the test).
+- `scripts/test-install.sh` (no root, no OpenRC, Linux): syntax, `--help`, bad options, refusal of a real
+  install off Alpine or without root, install with modes, init script and conf.d equal to `packaging/openrc/`,
+  uped actually starting with the flags the init script builds from default and edited conf.d values, re-run
+  "already up to date", upgrade keeping conf.d edits and restoring a tampered init script, tarball plus
+  checksums, checksum mismatch writing nothing, downloads (latest, pinned `0.0.1-test` normalised to
+  `v0.0.1-test`, missing release) from a `python3 -m http.server` laid out like GitHub Releases, the same
+  install and purge with **only busybox applets on PATH** (so through busybox wget, as on Alpine), piped
+  `cat install.sh | sh -s -- --uninstall`, `--purge`, and purge leaving a custom data folder alone.
+- `scripts/test-install-alpine.sh`: the real thing, as root in an Alpine container with `openrc` installed:
+  service enabled and healthy, runs as `uped`, dirs owned by `uped` with mode 750, an upload is written and
+  downloaded, re-run, a changed `UPED_LISTEN` takes effect and survives a re-run, `kill -9` is respawned by
+  supervise-daemon, `--uninstall`, `--purge`. **It cannot run in this sandbox** (no Docker daemon, and the
+  egress proxy blocks dl-cdn.alpinelinux.org and its mirrors), so Phase 6 runs it in CI with `docker run alpine`.
+- `README.md` (205 lines): pitch, real screenshots (`docs/screenshot-desktop.png`, `docs/screenshot-phone.png`,
+  taken with Playwright from sample data), Proxmox quick start, both one-liners, file locations, upgrade and
+  removal, service and logs, configuration table, Docker, how uploads and expiry work, limitations, security,
+  building from source, development commands.
+
+Decisions and differences from the plan:
+- **Restart after replacing, instead of stop, replace, start.** The new binary is copied next to the old one
+  and renamed over it (atomic; the running process keeps its inode), then `rc-service uped restart`. The
+  service restarts only when the binary or the init script changed; otherwise it is started if stopped.
+- `--prefix` also skips the root and Alpine checks, user creation and `chown`, so tests touch nothing outside
+  the prefix. Without `--prefix`, root and Alpine are required, and OpenRC unless `--no-service`.
+- The init script passes every conf.d setting as a flag with the same default as the binary (`--ttl
+  ${UPED_TTL:-168h}` and so on), so deleting a line from conf.d falls back to the default. Values are
+  unquoted inside `command_args`, which works whether or not openrc-run evals it; conf.d says values must
+  not contain spaces.
+- `--purge` removes `/var/lib/uped` (only its contents when it is a mount point), but leaves a data folder
+  configured elsewhere and says so, since it may hold other things.
+- The README covers the log growing slowly instead of adding logrotate (not in the Alpine template).
+- Not done: the research's `/usr/local/bin/uped-uninstall` copy; the documented `| sh -s -- --uninstall` covers it.
+
+Notes for Phase 6: CI should run `sh scripts/test-install.sh` (with `busybox` installed via apt so the
+busybox case runs) and `make cross ARCHES=amd64 && docker run --rm -v "$PWD:/src" -w /src alpine:3.22 sh
+scripts/test-install-alpine.sh dist`. The README's Docker section is already written.
 
 ## Phase 6: CI, releases, Docker image
 Status: Not started

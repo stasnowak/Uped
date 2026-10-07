@@ -18,6 +18,7 @@ make test     # go vet ./... && go test -race ./...
 make run      # serve on 127.0.0.1:8080 from ./data (LISTEN=0.0.0.0:8080 to test from a phone)
 make cross    # dist/uped_linux_{amd64,arm64}.tar.gz + dist/checksums.txt
 sh scripts/smoke.sh   # end-to-end curl check of dist/uped; prints SMOKE OK
+sh scripts/test-install.sh   # install.sh with --prefix: no root, no OpenRC; prints INSTALL TEST OK
 make e2e      # Playwright suite in e2e/ against `go run ./cmd/uped` (about 2 min)
 cd e2e && npx playwright test text --project=chromium-desktop   # one spec, one project
 dist/uped --help
@@ -34,6 +35,12 @@ dist/uped --help
   them as `web.FS`; add new asset files to its `//go:embed` line. Insert user data with `textContent` only:
   the page CSP forbids inline scripts and there is no `innerHTML` anywhere.
   `go:embed` cannot reach parent directories, which is why the embed lives in `web/` itself.
+- `install.sh` the user-facing installer (POSIX sh, run from a pipe, so everything happens in `main` on the last
+  line). It embeds the OpenRC init script and conf.d file; `packaging/openrc/` holds identical copies for
+  review and `scripts/test-install.sh` fails if they differ, so change both together. `--prefix` mode needs
+  no root and touches nothing outside the prefix; that is what the local tests use.
+- `scripts/test-install-alpine.sh` installs for real as root under OpenRC. CI runs it in `docker run alpine`;
+  never run it on a real machine. It is the only test of the init script under supervise-daemon.
 - `e2e/` Playwright specs, one shared server on 127.0.0.1:18080 with 4 MiB chunks and a 1 h TTL. Tests run
   one at a time and each starts from an empty drop (`cleanServer` fixture in `tests/helpers.ts`); the `guard`
   fixture fails a test on any console error it does not `allow()`. The server log is `e2e/test-results/uped-server.log`.
