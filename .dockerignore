@@ -1,0 +1,10 @@
+.git
+.github
+dist
+data
+.e2e-data
+e2e
+docs
+plans
+scripts
+packaging
