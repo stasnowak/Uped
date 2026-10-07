@@ -61,11 +61,11 @@ Node 22, Playwright 1.56.1 with Chromium under `/opt/pw-browsers` (never run
 
 ### Package layout
 ```
-cmd/uped/main.go            flags/env, logging, embed, server start, --version
+cmd/uped/                   config.go (flags + UPED_* env), main.go (logging, server start/shutdown, --version)
 internal/names/             sanitise segments, dedupe "name (n).ext", device label from UA (pure, table-tested)
 internal/store/             os.Root-based store: reserve, append, finish, abort, list, delete, zip, statfs, sweeper, meta.json
 internal/server/            mux + handlers, SSE hub, download, zip, static
-web/                        index.html, app.js, style.css (embedded)
+web/                        index.html, app.js, style.css; embed.go exports them as web.FS
 e2e/                        Playwright project (package.json, playwright.config.ts, tests/)
 install.sh                  user-facing installer (POSIX sh)
 packaging/openrc/uped.initd template written by install.sh (also committed for review)
@@ -131,15 +131,15 @@ rename with `os.Rename` on paths that already passed the Root/IsLocal checks).
 ---
 
 ## Phase 0: Repository scaffold
-Status: Not started
+Status: Complete
 
-- [ ] `go mod init github.com/stasnowak/Uped` with `go 1.24` (matches this container and Alpine 3.22's `apk add go`); no third-party requires.
-- [ ] Create the package layout above with compiling stubs: `cmd/uped/main.go` (flag/env parsing, `--version`, starts server), empty `internal/{names,store,server}` packages, `web/index.html` placeholder.
-- [ ] `Makefile` targets: `build` (static, `-trimpath -ldflags "-s -w -X main.version=$(VERSION)"` into `dist/uped`), `test` (`go vet ./... && go test -race ./...`), `run` (`go run ./cmd/uped --data ./data --listen 127.0.0.1:8080`), `e2e`, `cross` (linux/amd64 + linux/arm64 tarballs + `checksums.txt` into `dist/`).
-- [ ] `.gitignore`: `dist/`, `data/`, `e2e/node_modules/`, `e2e/test-results/`, `e2e/playwright-report/`, `.e2e-data/`.
-- [ ] `.editorconfig` (tabs for Go, 2 spaces for JS/CSS/YAML).
-- [ ] `CLAUDE.md`: how to build/test/run, the no-deps rule, "scripts shipped to users are POSIX sh", "never run playwright install", pointer to this plan.
-- [ ] `README.md` stub with the one-paragraph pitch and a "work in progress" note (full docs in Phase 5).
+- [x] `go mod init github.com/stasnowak/Uped` with `go 1.24` (matches this container and Alpine 3.22's `apk add go`); no third-party requires.
+- [x] Create the package layout above with compiling stubs: `cmd/uped/main.go` (flag/env parsing, `--version`, starts server), empty `internal/{names,store,server}` packages, `web/index.html` placeholder.
+- [x] `Makefile` targets: `build` (static, `-trimpath -ldflags "-s -w -X main.version=$(VERSION)"` into `dist/uped`), `test` (`go vet ./... && go test -race ./...`), `run` (`go run ./cmd/uped --data ./data --listen 127.0.0.1:8080`), `e2e`, `cross` (linux/amd64 + linux/arm64 tarballs + `checksums.txt` into `dist/`).
+- [x] `.gitignore`: `dist/`, `data/`, `e2e/node_modules/`, `e2e/test-results/`, `e2e/playwright-report/`, `.e2e-data/`.
+- [x] `.editorconfig` (tabs for Go, 2 spaces for JS/CSS/YAML).
+- [x] `CLAUDE.md`: how to build/test/run, the no-deps rule, "scripts shipped to users are POSIX sh", "never run playwright install", pointer to this plan.
+- [x] `README.md` stub with the one-paragraph pitch and a "work in progress" note (full docs in Phase 5).
 
 ### Verification Plan
 - `go vet ./... && go test ./...` → exit 0 (no tests yet is fine).
@@ -148,7 +148,36 @@ Status: Not started
 - `grep -c "require" go.mod` → `0`.
 
 ### Phase Summary
-_(write when phase completes)_
+Completed 2026-10-07. All four verification checks passed:
+
+| Check | Result |
+|---|---|
+| `go vet ./... && go test ./...` | exit 0; tests in `cmd/uped`, `internal/server`, `web` pass (also clean under `-race` and `gofmt -l`) |
+| `make build && file dist/uped` | `ELF 64-bit LSB executable, x86-64 ... statically linked ... stripped`, about 6 MB |
+| `dist/uped --version` | `uped 962cc57` from `make build` (git describe); `go run ./cmd/uped --version` prints `uped dev` |
+| `grep -c "require" go.mod` | `0` |
+
+Extra checks run: `make cross` produced `uped_linux_amd64.tar.gz`, `uped_linux_arm64.tar.gz` and
+`checksums.txt` that pass `sha256sum -c`, and the arm64 binary is `ARM aarch64 ... statically linked`.
+A live run served `/healthz` (200 `ok`), `/` (200 HTML), `HEAD /` (200), `/nope` (404), and exited 0 on SIGTERM.
+
+What exists now:
+- `go.mod`: module `github.com/stasnowak/Uped`, `go 1.24`, no requires.
+- `cmd/uped/config.go`: `Config`, `parseConfig(args, getenv, out)`, size parser (`512K`, `16M`, `16MiB`, `1G`, `2T`; binary multiples; whole numbers only), TTL parser (Go durations plus `7d`), validation. Flags override `UPED_*` env vars. `--help` exits 0, bad flags or env exit 2 with a message. Fully table-tested in `config_test.go`.
+- `cmd/uped/main.go`: `--version`, slog text logging to stderr, `os.MkdirAll(data, 0750)`, `http.Server` with the design-reference timeouts (`ReadHeaderTimeout` 10s, `IdleTimeout` 120s, Read/Write timeouts 0, 1 MiB headers), graceful shutdown on SIGINT/SIGTERM with a 10 s limit.
+- `internal/server/server.go`: `New(Options{Version, Static})` serving `GET /{$}` (index.html, `no-cache`, `nosniff`) and `GET /healthz`. Tests use `fstest.MapFS`.
+- `internal/names/doc.go`, `internal/store/doc.go`: package comments only.
+- `web/embed.go` (`web.FS`, embeds `index.html`), `web/index.html` placeholder with `<title>uped</title>`, `web/embed_test.go`.
+- `Makefile` (build, test, run, e2e, cross, clean), `.gitignore`, `.editorconfig`, `CLAUDE.md`, `README.md` stub.
+
+Key decisions:
+- **Embed location changed from the original plan.** `go:embed` cannot reference parent directories, so the embed lives in `web/embed.go` and `main` injects `web.FS` through `server.Options.Static`. Phase 2's static item is updated to match.
+- **Phase 2 work done early:** server timeouts, graceful shutdown and `/healthz` already exist. Phase 2's items are annotated with what remains.
+- `os.MkdirAll` in `run()` is a stand-in until `store.Open` takes over in Phase 2.
+- `make e2e` exists but exits 1 with a message until Phase 4 creates `e2e/package.json`.
+- `make cross` uses the exact release asset names, so Phase 5's `install.sh --binary` testing and Phase 6's release job can share them.
+
+Next: Phase 1 starts in `internal/names` and `internal/store`. Remember the Go 1.24 limit: `os.Root` has Open/Create/OpenFile/Mkdir/Remove/Stat/Lstat but no `Rename`, `MkdirAll` or `RemoveAll` (those are 1.25).
 
 ## Phase 1: Store and naming (pure Go, unit-tested)
 Status: Not started
@@ -180,8 +209,8 @@ _(write when phase completes)_
 Status: Not started
 
 - [ ] `internal/server`: `New(store, cfg) http.Handler` using `http.NewServeMux` with Go 1.22 method patterns (`"PUT /api/uploads/{id}"`).
-- [ ] Static: `//go:embed web` in `cmd/uped` (or `internal/server/web.go`), `fs.Sub`, serve `/` → `index.html`, `/static/*` via `http.FileServerFS`, `Cache-Control: no-cache`.
-- [ ] `GET /api/config`, `GET /healthz`.
+- [ ] Static: add `app.js style.css` to the `//go:embed` line in `web/embed.go`; serve `/static/*` from `Options.Static` via `http.StripPrefix("/static/", http.FileServerFS(...))` with `Cache-Control: no-cache`. (`/` → `index.html` exists since Phase 0.)
+- [ ] `GET /api/config` (`GET /healthz` exists since Phase 0).
 - [ ] `GET /api/list` (400 on bad path, 404 on missing dir).
 - [ ] Uploads: `POST /api/uploads` (JSON ≤ 64 KiB via `MaxBytesReader`; device label from `User-Agent`), `HEAD /api/uploads/{id}`, `PUT /api/uploads/{id}?offset=N` (`MaxBytesReader(chunkSize+1)` → 413 on overflow; 409 with `Upload-Offset` on mismatch; 507 on `ErrInsufficientSpace`; per-request read deadline 5 min via `ResponseController`), `POST .../finish`, `DELETE /api/uploads/{id}`.
 - [ ] `POST /api/text` (≤ 1 MiB), `DELETE /api/items?path=`.
@@ -190,7 +219,7 @@ Status: Not started
 - [ ] SSE hub: `GET /api/events` sets `text/event-stream`, `Cache-Control: no-cache`, flushes a `: connected` comment immediately, fans out store events as `event: change` / `event: upload` with JSON data, `: ping` every 20 s, exits on `r.Context().Done()`. Slow clients get dropped (buffered channel, non-blocking send).
 - [ ] Error responses are JSON `{"error": "human readable"}` with the right status; the frontend shows them verbatim.
 - [ ] Request logging with `log/slog` (method, path, status, duration, client IP; one line per finished upload with path, size, device).
-- [ ] `cmd/uped/main.go`: wire config, `http.Server` timeouts per **Design reference**, graceful shutdown on SIGINT/SIGTERM (`Shutdown` with 10 s timeout), start sweeper, print `listening on http://0.0.0.0:8080` plus the detected LAN IPv4 if any.
+- [ ] `cmd/uped/main.go`: config, server timeouts and graceful shutdown exist since Phase 0. Remaining: replace the `os.MkdirAll` stand-in with `store.Open`, pass the store into `server.New`, start the sweeper, log the reachable URL with the detected LAN IPv4 (for example `http://192.168.1.50:8080`), and make shutdown end SSE streams (`srv.RegisterOnShutdown` closing the hub) so it does not wait the full 10 s.
 - [ ] `internal/server` tests with `httptest`: full upload round-trip in 3 PUTs with byte-equal download; 409 path; 413 for oversized chunk; 507 when `minFree` is set above the temp dir's free space; Range request returns 206 with the right bytes; HEAD download; `Content-Disposition` for a non-ASCII name; zip response readable by `zip.NewReader`; SSE: connect, perform an upload, assert `change` and `upload` events arrive within 2 s; path traversal via URL (`/d/../../x`, `%2e%2e`) → 400/404, never a file outside `files/`.
 - [ ] `scripts/smoke.sh` (POSIX sh, curl): starts `dist/uped` on a temp dir and random port, exercises every endpoint, compares sha256 of a 40 MiB random file uploaded in 16 MiB chunks against the download, prints `SMOKE OK`.
 
@@ -239,7 +268,7 @@ Status: Not started
 - [ ] `text.spec.ts`: Add text → `.txt` row with preview; synthetic `paste` event with `text/plain` → new row; Copy button click does not throw and the toast appears; synthetic paste with an image `File` → `pasted-*.png` row.
 - [ ] `limits.spec.ts`: start a second server instance in the test with `--max-file-size 1M` (spawn `go run` on another port) → picking a 2 MiB file shows the 413 message inline; `--min-free` set to an absurd value → 507 banner.
 - [ ] `mobile.spec.ts` (mobile project): no horizontal overflow (`document.scrollingElement.scrollWidth <= innerWidth`), buttons visible above the fold, picker upload works.
-- [ ] `make e2e` target: `cd e2e && npm ci && npx playwright test`.
+- [ ] `make e2e` target: exists since Phase 0 (guarded until `e2e/package.json` exists); confirm it runs the suite.
 
 ### Verification Plan
 - `cd e2e && npm ci && PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers npx playwright test` → all specs pass, output ends with `N passed`.
