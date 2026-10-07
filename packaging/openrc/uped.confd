@@ -1,0 +1,24 @@
+# Settings for the uped service. install.sh writes this file only when it
+# is missing, so your changes survive upgrades. Apply them with:
+#   rc-service uped restart
+# Values must not contain spaces.
+
+# Address and port to listen on. ":8080" means port 8080 on every interface.
+UPED_LISTEN=":8080"
+
+# Where uploads are stored. The service creates the folder and gives it to
+# the uped user. Point it at a bigger disk or mount point if you like.
+UPED_DATA_DIR="/var/lib/uped"
+
+# How long items stay before they are deleted: 168h (7 days), 7d, 24h, 30d.
+# 0 keeps them until someone deletes them.
+UPED_TTL="168h"
+
+# Refuse uploads that would leave less free disk space than this: 1G, 500M.
+UPED_MIN_FREE="1G"
+
+# Largest file accepted, for example 4G; 0 means no limit.
+UPED_MAX_FILE_SIZE="0"
+
+# Any other uped flags, for example "--chunk-size 8M". See: uped --help
+UPED_EXTRA_ARGS=""

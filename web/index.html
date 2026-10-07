@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>uped</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%232f6fed'/%3E%3Cpath d='M12 18V7m-5 5 5-5 5 5' stroke='white' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <a class="brand" href="/" id="home-link">
+        <span class="logo" aria-hidden="true"></span>
+        <span>uped</span>
+      </a>
+      <div class="status">
+        <span id="free" class="free" hidden></span>
+        <span id="live" class="live" title="Live updates connecting" aria-label="Live updates connecting"></span>
+      </div>
+    </header>
+
+    <nav class="crumbs" id="crumbs" aria-label="Folder"></nav>
+
+    <div class="actions" role="toolbar" aria-label="Add to this folder">
+      <label class="btn primary">
+        <input type="file" id="pick-files" class="file-input" multiple>
+        <span>Add files</span>
+      </label>
+      <label class="btn" id="pick-folder-label">
+        <input type="file" id="pick-folder" class="file-input" webkitdirectory multiple>
+        <span>Add folder</span>
+      </label>
+      <button type="button" class="btn" id="text-toggle" aria-expanded="false" aria-controls="composer">Add text</button>
+      <a class="btn ghost" id="zip-all" href="/api/zip" hidden>Download all</a>
+    </div>
+
+    <form class="composer" id="composer" hidden>
+      <label for="text-input" class="sr-only">Text to share</label>
+      <textarea id="text-input" rows="4" placeholder="Paste a link or type a note. It is saved as a .txt file here."></textarea>
+      <div class="composer-actions">
+        <span class="hint">Ctrl+Enter saves</span>
+        <button type="button" class="btn ghost" id="text-cancel">Cancel</button>
+        <button type="submit" class="btn primary" id="text-save">Save text</button>
+      </div>
+    </form>
+
+    <div id="banner" class="banner" role="alert" hidden></div>
+
+    <section class="queue" id="queue" hidden aria-label="Uploads from this device">
+      <div class="queue-head">
+        <div class="queue-summary" id="queue-summary"></div>
+        <button type="button" class="link" id="queue-clear">Clear finished</button>
+      </div>
+      <div class="bar" id="queue-bar" role="progressbar" aria-label="All uploads" aria-valuemin="0" aria-valuemax="100"><span></span></div>
+      <ul class="queue-list" id="queue-list"></ul>
+    </section>
+
+    <main>
+      <ul class="list" id="list" aria-label="Files"></ul>
+      <div class="empty" id="empty" hidden>
+        <p class="empty-title">Nothing here yet</p>
+        <p id="empty-text">Drop files here or tap Add files.</p>
+      </div>
+    </main>
+
+    <footer class="foot">
+      <span id="version">uped</span>
+      <span>No login: anyone on your network can see, download and delete these files.</span>
+    </footer>
+  </div>
+
+  <div class="drop" id="drop" hidden>
+    <div class="drop-inner">
+      <span class="drop-icon" aria-hidden="true"></span>
+      <p>Drop to upload to <strong id="drop-target">Home</strong></p>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <dialog class="copy-dialog" id="copy-dialog">
+    <form method="dialog">
+      <p>Copying is blocked here. Select the text below and copy it yourself.</p>
+      <textarea id="copy-text" rows="6" readonly></textarea>
+      <div class="composer-actions"><button class="btn primary">Done</button></div>
+    </form>
+  </dialog>
+</body>
+</html>

@@ -1,0 +1,31 @@
+#!/sbin/openrc-run
+# shellcheck shell=sh disable=SC2034 # the variables are read by openrc-run
+# uped: LAN file drop, https://github.com/stasnowak/Uped
+# Written by install.sh, which replaces this file on every run.
+# Change settings in /etc/conf.d/uped instead, then: rc-service uped restart
+
+name="uped"
+description="LAN file drop: share files between the devices on your network"
+
+supervisor=supervise-daemon
+command="/usr/local/bin/uped"
+# conf.d variables are not exported, so they are passed as flags.
+command_args="--listen ${UPED_LISTEN:-:8080} --data ${UPED_DATA_DIR:-/var/lib/uped} --ttl ${UPED_TTL:-168h} --min-free ${UPED_MIN_FREE:-1G} --max-file-size ${UPED_MAX_FILE_SIZE:-0} ${UPED_EXTRA_ARGS:-}"
+command_user="uped:uped"
+directory="${UPED_DATA_DIR:-/var/lib/uped}"
+pidfile="/run/uped.pid"
+output_log="/var/log/uped/uped.log"
+error_log="/var/log/uped/uped.log"
+respawn_delay=5
+respawn_max=0
+umask=027
+
+depend() {
+	need net
+	after firewall
+	use dns logger
+}
+
+start_pre() {
+	checkpath -d -m 0750 -o uped:uped "${UPED_DATA_DIR:-/var/lib/uped}" /var/log/uped
+}

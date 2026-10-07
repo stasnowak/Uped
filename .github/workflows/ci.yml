@@ -1,0 +1,155 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Go vet, tests and smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: No third-party Go modules
+        run: "! grep -q require go.mod"
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - run: go vet ./...
+      - run: go test -race ./...
+      - name: Smoke test of the built binary
+        run: make build && sh scripts/smoke.sh
+
+  build:
+    name: Build linux/${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Build
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} go build -trimpath -ldflags "-s -w" -o uped ./cmd/uped
+      - name: Static binary
+        run: file uped | tee /dev/stderr | grep -q "statically linked"
+
+  installer:
+    name: Installer tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq busybox shellcheck
+      - name: shellcheck
+        run: |
+          shellcheck -s sh install.sh packaging/openrc/uped.initd scripts/*.sh
+          shellcheck -s sh -e SC2034 packaging/openrc/uped.confd
+      - name: No bash in install.sh
+        run: "! grep -n bash install.sh"
+      - name: install.sh without root (scripts/test-install.sh)
+        run: sh scripts/test-install.sh
+
+  installer-alpine:
+    name: Install on Alpine ${{ matrix.alpine }} with OpenRC
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        alpine: ["3.22", "latest"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Release tarball
+        run: make cross ARCHES=amd64
+      - name: Real install as root (scripts/test-install-alpine.sh)
+        run: docker run --rm -v "$PWD:/src" -w /src alpine:${{ matrix.alpine }} sh scripts/test-install-alpine.sh dist
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Build both platforms
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          build-args: VERSION=ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Load the amd64 image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          build-args: VERSION=ci
+          load: true
+          tags: uped:ci
+          cache-from: type=gha
+      - name: Run it with a named volume
+        run: |
+          set -eux
+          docker run --rm uped:ci --version | grep -Fx "uped ci"
+          docker run -d --name uped -p 18080:8080 -v uped-data:/data uped:ci
+          for _ in $(seq 1 30); do curl -fsS http://127.0.0.1:18080/healthz && break; sleep 1; done
+          curl -fsS -X POST -H "Content-Type: application/json" -d '{"dir":"","text":"hello from docker"}' http://127.0.0.1:18080/api/text
+          test "$(curl -fsS http://127.0.0.1:18080/d/hello-from-docker.txt)" = "hello from docker"
+          docker restart uped
+          for _ in $(seq 1 30); do curl -fsS http://127.0.0.1:18080/healthz && break; sleep 1; done
+          curl -fsS "http://127.0.0.1:18080/api/list?path=" | grep -q hello-from-docker.txt
+      - name: Container log
+        if: always()
+        run: docker logs uped || true
+
+  e2e:
+    name: Playwright
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - name: npm ci
+        working-directory: e2e
+        run: npm ci
+      - name: Install Chromium
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+      - name: Playwright tests
+        working-directory: e2e
+        run: npx playwright test
+      - name: Upload report and server log
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: playwright-report
+          path: |
+            e2e/playwright-report
+            e2e/test-results
+          retention-days: 7
