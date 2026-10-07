@@ -595,6 +595,22 @@ Left for the user, in order (details in **Deployment Plan**): ask for (or open) 
 tag `v0.1.0` (optionally `v0.1.0-rc1` first); make the ghcr.io package public; create the Proxmox container,
 run the installer and do the field check; then report anything odd so it becomes Phase 8.
 
+## Phase 8: Field fixes
+Status: In progress
+
+Issues found while installing on the user's Proxmox. Each gets a checkbox; tick it when fixed and pushed.
+
+- [x] README quick start, `pct create` failed (2026-10-07). Two bugs in the commands: (1) the template
+  pick `awk '/alpine-3/' | sort -V | tail -n 1` chose `alpine-3.24-default_20260803_arm64.tar.xz`, because the
+  catalogue lists both architectures and `arm64` sorts after `amd64`; (2) `--rootfs local-lvm:2` was
+  hard-coded and the host has no `local-lvm` storage. Fix: the block now reads the host architecture
+  (`dpkg --print-architecture`), keeps only templates ending in `_<arch>.tar*`, picks the first active storage
+  from `pvesm status --content rootdir`, takes the ID from `pvesh get /cluster/nextid`, and echoes all three
+  before creating anything. Checked against sample `pveam available` and `pvesm status` output (both
+  architectures, ZFS and directory storage, an inactive NFS entry); the block passes `sh -n`.
+- [ ] Field check from Phase 7 continues once the container exists: installer, phone upload, Wi-Fi resume,
+  sweeper.
+
 ## Final Recap
 Written 2026-10-07, when everything an agent can do was done. Phase 7's remaining steps (pull request,
 merge, `v0.1.0` tag, check on a real Proxmox container and phones) are the user's.

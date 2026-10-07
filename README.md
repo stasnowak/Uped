@@ -28,24 +28,30 @@ of memory and a 2 GB disk, plus whatever space you want for uploads.
 
 ```sh
 pveam update
-TEMPLATE=$(pveam available --section system | awk '/alpine-3/ {print $2}' | sort -V | tail -n 1)
+ARCH=$(dpkg --print-architecture)    # amd64 or arm64, to match this host
+TEMPLATE=$(pveam available --section system | awk -v a="_$ARCH.tar" '$2 ~ /^alpine-3/ && index($2, a) {print $2}' | sort -V | tail -n 1)
+STORAGE=$(pvesm status --content rootdir | awk 'NR > 1 && $3 == "active" {print $1; exit}')
+CTID=$(pvesh get /cluster/nextid)
+echo "container $CTID from $TEMPLATE on $STORAGE"
 pveam download local "$TEMPLATE"
-pct create 120 "local:vztmpl/$TEMPLATE" --hostname uped \
-  --cores 1 --memory 512 --swap 512 --rootfs local-lvm:2 --unprivileged 1 \
+pct create "$CTID" "local:vztmpl/$TEMPLATE" --hostname uped \
+  --cores 1 --memory 512 --swap 512 --rootfs "$STORAGE:2" --unprivileged 1 \
   --net0 name=eth0,bridge=vmbr0,ip=dhcp --onboot 1 --start 1
 ```
 
-Pick a free container ID instead of `120`, and your storage instead of
-`local-lvm`. For a fixed address use `ip=192.168.1.50/24,gw=192.168.1.1`, or
-reserve the container's address in your router. For more upload space, add a
-volume mounted where uped keeps its files (here 50 GB), then restart the
-container:
+This picks the newest Alpine template for your CPU, the first active storage
+that can hold containers (`local-lvm`, `local-zfs`, ...) and the next free
+container ID. Check the `echo` line; to choose yourself, set `STORAGE` or
+`CTID` before the `pct create` line. For a fixed address use
+`ip=192.168.1.50/24,gw=192.168.1.1`, or reserve the container's address in
+your router. For more upload space, add a volume mounted where uped keeps its
+files (here 50 GB), then restart the container:
 
 ```sh
-pct set 120 -mp0 local-lvm:50,mp=/var/lib/uped
+pct set "$CTID" -mp0 "$STORAGE:50,mp=/var/lib/uped"
 ```
 
-**2. Install uped** inside the container (`pct enter 120`). Alpine comes with `wget`:
+**2. Install uped** inside the container (`pct enter <id>`, the ID printed above). Alpine comes with `wget`:
 
 ```sh
 wget -qO- https://raw.githubusercontent.com/stasnowak/Uped/main/install.sh | sh
