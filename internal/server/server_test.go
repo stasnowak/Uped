@@ -187,6 +187,9 @@ func TestStaticAndConfig(t *testing.T) {
 	if etag == "" || resp.Header.Get("Cache-Control") != "no-cache" {
 		t.Fatalf("index headers: etag %q cache %q", etag, resp.Header.Get("Cache-Control"))
 	}
+	if csp := resp.Header.Get("Content-Security-Policy"); !strings.Contains(csp, "script-src 'self'") || !strings.Contains(csp, "frame-ancestors 'none'") {
+		t.Fatalf("index CSP = %q", csp)
+	}
 	resp, _ = e.do("GET", "/", nil, "If-None-Match", etag)
 	expect(t, resp, http.StatusNotModified, "revalidate index")
 

@@ -299,20 +299,20 @@ Notes for Phase 3 (also added to its items):
 - Keep `<title>uped</title>`; the Go tests and the smoke script check for it.
 
 ## Phase 3: Web UI
-Status: Not started
+Status: Complete
 
-- [ ] `web/index.html`: header (app name, free space, TTL note), breadcrumb bar, action row (`Add files` `<input type=file multiple>`, `Add folder` `<input type=file webkitdirectory multiple>`, `Add text` toggles a textarea + Save), item list, upload queue panel, full-page drop overlay. Semantic HTML, `<meta name="viewport">`, no inline scripts.
-- [ ] `web/style.css`: mobile-first single column, 44 px tap targets, `prefers-color-scheme` dark/light via CSS variables, drop overlay, progress bars, no horizontal scroll at 360 px.
-- [ ] `web/app.js` state: `{dir, entries, uploads (server-side in progress), queue (local), config}`. Fetch `/api/config` then `/api/list?path=`; render list newest first: icon by type, name (click = download for files via a real `<a href="/d/...">`, enter for dirs), size, device, time ago, expires in; actions: Download, Copy (text items), Delete (confirm), Zip (dirs). Root "Download all as zip" button when the list is non-empty.
-- [ ] Breadcrumbs reflect `dir`; browser `history.pushState` with `?path=` so back/forward and refresh keep the directory.
-- [ ] Drag and drop: `dragenter/dragover/drop` on `document`, overlay while dragging, `DataTransferItem.webkitGetAsEntry()` recursion (`readEntries` until an empty batch) to collect `{file, relDir}`; fallback to `dataTransfer.files` when entries are unavailable.
-- [ ] Pickers: files → `relDir = ""`; folder → `relDir = dirname(file.webkitRelativePath)`. Target directory for every upload = `join(currentDir, relDir)`.
-- [ ] Upload engine exactly as in **Upload client state machine** (a `POST /api/uploads` answer with `state: "done"` means the server already has that file: mark it complete without sending bytes; if `finish` returns 404, re-POST the create request to learn whether it completed): `XMLHttpRequest` per chunk, `upload.onprogress`, retries, 409 resync, HEAD on `visibilitychange`, `localStorage` fingerprint map, one in flight, FIFO. Queue panel shows per-file bar, overall bar, speed and ETA (throttled 300 ms), Cancel (DELETE upload) and Retry.
-- [ ] Error surfacing: 413 / 507 / network errors show the server's `error` text inline on the queue item; a 507 pauses the whole queue with a "Disk full on server" banner.
-- [ ] Snippets: textarea Save → `POST /api/text`. Global `paste` listener (ignored when target is input/textarea): image items → upload as `pasted-<timestamp>.png`; plain text → `POST /api/text`. Text items render the `preview` and a Copy button that fetches `/d/<path>` then copies via `navigator.clipboard?.writeText` or the hidden-textarea `execCommand('copy')` fallback; show "Copied" toast.
-- [ ] Live updates: `EventSource('/api/events')`; on `change` whose `dir` is the current folder, inside it, or above it → refetch the list (debounced ~300 ms), and treat an `upload` event with `state: "done"` the same way for its `dir`; on `upload` → upsert a greyed "incoming" row with name and % for uploads targeting the current dir (skip ones that are in this tab's own queue); close on `pagehide`; on `error` the browser reconnects, refetch the list on `open`.
-- [ ] Empty state copy ("Drop files here or tap Add files. Everything disappears after 7 days.") and a footer line with version.
-- [ ] Manual check in the real browser via the `run` skill: desktop drop of a folder, phone-width viewport, dark mode screenshot.
+- [x] `web/index.html`: header (app name, free space, TTL note), breadcrumb bar, action row (`Add files` `<input type=file multiple>`, `Add folder` `<input type=file webkitdirectory multiple>`, `Add text` toggles a textarea + Save), item list, upload queue panel, full-page drop overlay. Semantic HTML, `<meta name="viewport">`, no inline scripts.
+- [x] `web/style.css`: mobile-first single column, 44 px tap targets, `prefers-color-scheme` dark/light via CSS variables, drop overlay, progress bars, no horizontal scroll at 360 px.
+- [x] `web/app.js` state: `{dir, entries, uploads (server-side in progress), queue (local), config}`. Fetch `/api/config` then `/api/list?path=`; render list newest first: icon by type, name (click = download for files via a real `<a href="/d/...">`, enter for dirs), size, device, time ago, expires in; actions: Download, Copy (text items), Delete (confirm), Zip (dirs). Root "Download all as zip" button when the list is non-empty.
+- [x] Breadcrumbs reflect `dir`; browser `history.pushState` with `?path=` so back/forward and refresh keep the directory.
+- [x] Drag and drop: `dragenter/dragover/drop` on `document`, overlay while dragging, `DataTransferItem.webkitGetAsEntry()` recursion (`readEntries` until an empty batch) to collect `{file, relDir}`; fallback to `dataTransfer.files` when entries are unavailable.
+- [x] Pickers: files → `relDir = ""`; folder → `relDir = dirname(file.webkitRelativePath)`. Target directory for every upload = `join(currentDir, relDir)`.
+- [x] Upload engine exactly as in **Upload client state machine** (a `POST /api/uploads` answer with `state: "done"` means the server already has that file: mark it complete without sending bytes; if `finish` returns 404, re-POST the create request to learn whether it completed): `XMLHttpRequest` per chunk, `upload.onprogress`, retries, 409 resync, HEAD on `visibilitychange`, `localStorage` fingerprint map, one in flight, FIFO. Queue panel shows per-file bar, overall bar, speed and ETA (throttled 300 ms), Cancel (DELETE upload) and Retry.
+- [x] Error surfacing: 413 / 507 / network errors show the server's `error` text inline on the queue item; a 507 pauses the whole queue with a "Disk full on server" banner.
+- [x] Snippets: textarea Save → `POST /api/text`. Global `paste` listener (ignored when target is input/textarea): image items → upload as `pasted-<timestamp>.png`; plain text → `POST /api/text`. Text items render the `preview` and a Copy button that fetches `/d/<path>` then copies via `navigator.clipboard?.writeText` or the hidden-textarea `execCommand('copy')` fallback; show "Copied" toast.
+- [x] Live updates: `EventSource('/api/events')`; on `change` whose `dir` is the current folder, inside it, or above it → refetch the list (debounced ~300 ms), and treat an `upload` event with `state: "done"` the same way for its `dir`; on `upload` → upsert a greyed "incoming" row with name and % for uploads targeting the current dir (skip ones that are in this tab's own queue); close on `pagehide`; on `error` the browser reconnects, refetch the list on `open`.
+- [x] Empty state copy ("Drop files here or tap Add files. Everything disappears after 7 days.") and a footer line with version.
+- [x] Manual check in the real browser via the `run` skill: desktop drop of a folder, phone-width viewport, dark mode screenshot.
 
 ### Verification Plan
 - `go build ./... && go test ./internal/server` → still green (static assets embedded).
@@ -320,13 +320,44 @@ Status: Not started
 - `node -e "require('fs').readFileSync('web/app.js','utf8')" && node --check web/app.js` → exit 0 (syntax).
 
 ### Phase Summary
-_(write when phase completes)_
+Completed 2026-10-07. Verification results:
+
+| Check | Result |
+|---|---|
+| `go build ./... && go test ./internal/server` | `ok` (the whole module also passes `go test -race`, and `scripts/smoke.sh` still prints `SMOKE OK`) |
+| Headless Chromium check (`sh scripts/ui-check.sh`) | 36 of 36 checks pass on three runs of the final script (earlier 30- and 34-check versions passed on six more). Includes: title `uped`, no console errors, two picked files become two rows within 5 s |
+| `node --check web/app.js` | exit 0 |
+
+What `scripts/ui-check.js` covers: both pickers open real multi-select choosers; files, a folder (structure kept) and pasted text upload; the text composer; a second tab sees new files, in-progress uploads (rising percentage) and deletes live; folder navigation with `?path=` deep links, back button and a missing folder falling back to Home; copy, delete and download links; a synthetic drop of two files; a stand-in **folder drop** whose entry returns children over several `readEntries` batches plus a subfolder; idle title; and at iPhone 13 size (light and dark) and at 360 px: no horizontal scroll, all buttons at least 44 px, no page errors. The only console error, a 404 for `/api/list?path=nope`, comes from the deliberate missing-folder visit and is filtered by URL.
+
+The plan's last item asked for a manual check with the `run` skill. That was done with Playwright screenshots instead: desktop light, desktop dark with the drop overlay, phone light and dark, 360 px, and a second tab with an incoming upload. A physical iPhone or Android device was not available; that check stays in Phase 7.
+
+What exists now:
+- `web/index.html`: header (logo, free space, live-updates dot), breadcrumbs, action row (Add files, Add folder, Add text, Download all/folder), text composer, disk-full banner, upload queue, file list, empty state, footer, drop overlay, toast, and a manual-copy `<dialog>`. No inline scripts.
+- `web/style.css`: CSS variables for light and dark, a 760 px single column, list rows as a 3-column grid so meta lines and previews run full width under the name and buttons, and stretching action buttons under 560 px.
+- `web/app.js` (plain script in an IIFE): navigation and rendering, the upload engine per **Upload client state machine**, drag and drop with recursive `webkitGetAsEntry`, paste, snippets with copy, and live updates via `EventSource`.
+- `internal/server`: `index.html` now carries a strict `Content-Security-Policy` (`script-src 'self'`, no inline scripts, `frame-ancestors 'none'`) and `Referrer-Policy: no-referrer`, with a test.
+- `scripts/ui-check.js` and `scripts/ui-check.sh`: the browser check above, self-contained. It is interim; Phase 4 ports it and deletes it.
+
+Decisions:
+- All names reach the DOM through `textContent`/`append`; there is no `innerHTML` anywhere. With the page CSP, that is two layers against hostile file names from other devices.
+- **Copy:** when the preview is the whole file (UTF-8 byte count equals `size`), it is copied synchronously so the click's user activation survives, which Safari needs. Otherwise the text is fetched first. If `execCommand('copy')` fails, a dialog shows the selected text for manual copying.
+- **Upload engine details:** 404 on a chunk means the server dropped the upload, usually because the folder was deleted. That becomes an error with Retry, not a silent restart, which would undo someone's delete. Retry waits are woken early by `visibilitychange` and `online`. After 5 failed retries an item pauses with "Tap Retry". A 507 pauses the whole queue with a banner, and Retry clears it. A `beforeunload` prompt appears while uploads are pending. The tab title shows overall progress while busy. Resume ids live in `localStorage` as `{id, t}` and are pruned after two days.
+- File inputs are visually hidden (`.file-input`), not `display: none`, because some iOS versions will not open a picker through a label whose input is not rendered. The Add folder button hides itself when the browser lacks `webkitdirectory` (iOS before 18.4).
+- Finished queue rows drop their progress bar, and the queue is capped at 100 rows with an "and N more" line, so large folder drops stay responsive on phones.
+- Meta lines join each phrase with non-breaking spaces so a line never breaks inside "expires in 7 days".
+
+Notes for Phase 4:
+- Port the 36 checks in `scripts/ui-check.js` into `e2e/tests/*.spec.ts`, then delete `scripts/ui-check.*` and its `CLAUDE.md` line.
+- A folder drop cannot be synthesised with a real `DataTransfer` (its items have no directory entries). Use a plain `Event("drop")` with `Object.defineProperty(ev, "dataTransfer", ...)` carrying stand-in entries, as `ui-check.js` does.
+- Run the server with `--chunk-size 1M` (or 4M) so uploads have several chunks to intercept with `page.route`.
+- Meta text contains U+00A0 between words; normalise it before comparing strings.
 
 ## Phase 4: End-to-end tests (Playwright)
 Status: Not started
 
 - [ ] `e2e/package.json` with `@playwright/test` pinned to `1.56.1` (matches `/opt/pw-browsers/chromium-1194`); `e2e/playwright.config.ts` with `webServer: { command: "go run ../cmd/uped --listen 127.0.0.1:18080 --data ./.e2e-data --ttl 1h --chunk-size 4M", url: "http://127.0.0.1:18080/healthz", reuseExistingServer: false }`, `globalSetup` wipes `.e2e-data`, projects: `chromium-desktop` and `chromium-mobile` (iPhone 13 viewport, `hasTouch`). Document `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers` and never `playwright install` locally; CI does `npx playwright install --with-deps chromium`.
-- [ ] `tests/helpers.ts`: generate fixture files of given size with deterministic content, sha256 helper, `dropFiles(page, files)` that dispatches a synthetic `drop` with a `DataTransfer`, `apiList(request, dir)`.
+- [ ] `tests/helpers.ts`: generate fixture files of given size with deterministic content, sha256 helper, `dropFiles(page, files)` that dispatches a synthetic `drop` with a `DataTransfer`, `dropFolder(page, tree)` using a plain `Event("drop")` with stand-in directory entries (see `scripts/ui-check.js`), `apiList(request, dir)`. Start by porting every check in `scripts/ui-check.js`; delete `scripts/ui-check.*` and its `CLAUDE.md` line once the suite covers them.
 - [ ] `basic.spec.ts`: empty state renders; pick two small files → rows with correct names/sizes; download via `request.get('/d/<name>')` is byte-equal; delete removes the row; breadcrumb navigation into a folder and back.
 - [ ] `dragdrop.spec.ts` (desktop only): synthetic drop of two files lands in the current dir; drop into a subfolder view lands there.
 - [ ] `folder.spec.ts`: `setInputFiles` on the `webkitdirectory` input with a fixture directory (nested 2 levels) → tree preserved on server (`apiList` of subdirs); folder zip via `request.get('/api/zip?path=...')` returns `application/zip` with the `PK` magic and non-trivial size; folder delete removes everything.

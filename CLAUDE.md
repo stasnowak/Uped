@@ -18,6 +18,7 @@ make test     # go vet ./... && go test -race ./...
 make run      # serve on 127.0.0.1:8080 from ./data (LISTEN=0.0.0.0:8080 to test from a phone)
 make cross    # dist/uped_linux_{amd64,arm64}.tar.gz + dist/checksums.txt
 sh scripts/smoke.sh   # end-to-end curl check of dist/uped; prints SMOKE OK
+sh scripts/ui-check.sh  # headless Chromium check of the web UI (interim until e2e/ exists)
 make e2e      # Playwright suite in e2e/ (Phase 4)
 dist/uped --help
 ```
@@ -29,7 +30,9 @@ dist/uped --help
 - `internal/store/` everything on disk under `--data`: chunked uploads, list, delete, zip, sweeper, disk guard.
 - `internal/server/` HTTP handlers and the SSE hub. Static files arrive via `server.Options.Static`.
   Error-to-status mapping lives in `respond.go`; idle deadlines and request logging in `middleware.go`.
-- `web/` the UI. `web/embed.go` embeds it as `web.FS`; add new asset files to its `//go:embed` line.
+- `web/` the UI: `index.html`, `style.css`, `app.js` (one plain script, no modules). `web/embed.go` embeds
+  them as `web.FS`; add new asset files to its `//go:embed` line. Insert user data with `textContent` only:
+  the page CSP forbids inline scripts and there is no `innerHTML` anywhere.
   `go:embed` cannot reach parent directories, which is why the embed lives in `web/` itself.
 
 ## Rules

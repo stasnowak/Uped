@@ -155,8 +155,18 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request, name string
 	h.Set("ETag", f.etag)
 	h.Set("Cache-Control", "no-cache")
 	h.Set("X-Content-Type-Options", "nosniff")
+	if name == "index.html" {
+		// File names come from any device on the network. The UI only ever
+		// inserts them as text, and this policy is the second line of
+		// defence: no inline or foreign scripts, no framing.
+		h.Set("Content-Security-Policy", pageCSP)
+		h.Set("Referrer-Policy", "no-referrer")
+	}
 	http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(f.body))
 }
+
+const pageCSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; " +
+	"connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	o := s.store.Options()
