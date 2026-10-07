@@ -88,8 +88,8 @@ Dockerfile, Makefile, .github/workflows/{ci,release}.yml, README.md, CLAUDE.md
 ```
 files/                 the shared tree, exactly as users see it (original names)
 .parts/<id>.part       bytes received so far (opened O_APPEND)
-.parts/<id>.json       {id,name,dir,size,fingerprint,device,created,lastActivity}
-meta.json              {"<relpath>": {"device": "...", "uploaded": "..."}} written atomically (tmp + rename)
+.parts/<id>.json       {id,name,dir,size,fingerprint,device,created}  (offset = .part size; last activity = .part mtime)
+meta.json              {"<relpath>": {"device": "...", "fingerprint": "..."}} written atomically, debounced to once per second
 ```
 File mtime = time of last byte written (rename preserves it) = upload completion = TTL anchor.
 
@@ -101,7 +101,7 @@ GET    /healthz                   "ok"
 GET    /api/config                {version, chunkSize, ttlSeconds, maxFileSize, minFree}
 GET    /api/list?path=<dir>       {path, entries:[{name,type,size,modified,expiresAt,device,preview?}], uploads:[{id,name,size,offset,device}], free}
 GET    /api/events                SSE. events: "change" {path:<dir>}, "upload" {id,dir,name,size,offset,state}; ": ping" every 20 s
-POST   /api/uploads               {name, dir, size, lastModified, fingerprint} → 201 {id, offset, path}; 413 too large; 507 disk
+POST   /api/uploads               {name, dir, size, fingerprint} → 201 {id, offset, name, dir, state}; state "done" + path means already uploaded, skip; 413 too large; 507 disk
 HEAD   /api/uploads/{id}          200 + Upload-Offset header, or 404
 PUT    /api/uploads/{id}?offset=N body = one chunk (MaxBytesReader chunk+1) → 204 + Upload-Offset; 409 + Upload-Offset on mismatch; 507 disk
 POST   /api/uploads/{id}/finish   fsync, re-dedupe target, rename into files/, write meta → 200 {path}
@@ -180,22 +180,22 @@ Key decisions:
 Next: Phase 1 starts in `internal/names` and `internal/store`. Remember the Go 1.24 limit: `os.Root` has Open/Create/OpenFile/Mkdir/Remove/Stat/Lstat but no `Rename`, `MkdirAll` or `RemoveAll` (those are 1.25).
 
 ## Phase 1: Store and naming (pure Go, unit-tested)
-Status: Not started
+Status: Complete
 
-- [ ] `internal/names`: `Sanitize(segment string) string` — `path.Base`, strip chars `< 0x20`, `0x7f`, `/ \ : * ? " < > |`, trailing dots/spaces, Windows reserved stems (`CON PRN AUX NUL COM1-9 LPT1-9`), cap 255 bytes, empty → `unnamed`. `SplitRel(p string) ([]string, error)` for user-supplied relative paths (rejects empty result, `..`, absolute). Table tests including unicode (Polish names must survive unchanged), `../../etc/passwd`, `CON.txt`, 300-byte names.
-- [ ] `internal/names`: `Dedupe(exists func(string) bool, name string) string` → `name`, `name (1).ext`, `name (2).ext`… (extension-aware, `.tar.gz` treated as `.gz` is acceptable). Tests.
-- [ ] `internal/names`: `DeviceLabel(userAgent string) string` → "iPhone Safari", "iPad Safari", "Android Chrome", "Windows Chrome/Edge/Firefox", "Mac Safari/Chrome", "Linux Firefox", "ChromeOS Chrome", fallback "Unknown device". Table tests with real UA strings.
-- [ ] `internal/names`: `SnippetName(text string) string` → slug of first line (≤ 40 chars) + `.txt`, or `note-20061007-143012.txt`.
-- [ ] `internal/store`: `Open(dataDir string, opts Options) (*Store, error)` creating `files/`, `.parts/`, loading `meta.json` and reconciling (drop entries whose file is gone), rebuilding reservations from `.parts/*.json`.
-- [ ] `internal/store`: `Reserve(dir []string, name string, size int64, fingerprint, device string) (*Upload, error)` — mutex, `Dedupe` against `files/<dir>` + outstanding reservations, Statfs guard (`ErrInsufficientSpace`), max size (`ErrTooLarge`), creates `.part` with `O_CREATE|O_EXCL` and the `.json` sidecar.
-- [ ] `internal/store`: `Offset(id) (int64, error)`, `Append(id string, offset int64, r io.Reader, limit int64) (newOffset int64, err error)` — `Stat` size must equal `offset` else `ErrOffsetMismatch{Current}`; write with `O_APPEND`; update `lastActivity`; Statfs re-check every 8th append.
-- [ ] `internal/store`: `Finish(id) (relpath string, err error)` — require `offset == size`, fsync, re-run `Dedupe` (race), `MkdirAll` the target dir inside root, rename, write `meta.json` atomically, remove sidecar. `Abort(id)`.
-- [ ] `internal/store`: `List(dir []string) (Listing, error)` — entries newest first, `expiresAt = mtime + ttl`, device from meta, `preview` = first 200 chars for `.txt` ≤ 64 KiB; plus in-progress uploads targeting that dir; `free` bytes.
-- [ ] `internal/store`: `Delete(rel []string) error` (file or recursive dir, updates meta), `PutText(dir, text, device) (relpath, error)`.
-- [ ] `internal/store`: `OpenFile(rel) (*os.File, os.FileInfo, error)` for downloads; `WriteZip(w io.Writer, dir []string, flush func()) error` using `archive/zip` with `zip.Store`, `Modified` set, recursive, `flush()` after each file, stops cleanly on write error (client abort).
-- [ ] `internal/store`: `Sweep(now time.Time) (removedFiles, removedParts, removedDirs int)` — files with `mtime < now - ttl` (skip when ttl == 0), parts idle > 24h, empty dirs bottom-up (never `files/` itself). `RunSweeper(ctx, every 15m)`.
-- [ ] `internal/store`: change notifications — `Store.Events() <-chan Event` with `Event{Kind: change|upload, Dir, Upload *UploadInfo}` emitted on reserve/append (throttled to 1/s per upload)/finish/abort/delete/sweep.
-- [ ] Unit tests for all of the above against `t.TempDir()`: reserve→append (3 chunks)→finish round-trip with byte equality, offset mismatch returns current offset, duplicate names, finish race (same name reserved twice), delete dir, sweep TTL and stale parts and empty dirs, zip contents readable with `zip.NewReader` and names/sizes match, path escape attempts (`..`, symlink inside `files/` pointing outside) are rejected.
+- [x] `internal/names`: `Sanitize(segment string) string` — `path.Base`, strip chars `< 0x20`, `0x7f`, `/ \ : * ? " < > |`, trailing dots/spaces, Windows reserved stems (`CON PRN AUX NUL COM1-9 LPT1-9`), cap 255 bytes, empty → `unnamed`. `SplitRel(p string) ([]string, error)` for user-supplied relative paths (rejects empty result, `..`, absolute). Table tests including unicode (Polish names must survive unchanged), `../../etc/passwd`, `CON.txt`, 300-byte names.
+- [x] `internal/names`: `Dedupe(exists func(string) bool, name string) string` → `name`, `name (1).ext`, `name (2).ext`… (extension-aware, `.tar.gz` treated as `.gz` is acceptable). Tests.
+- [x] `internal/names`: `DeviceLabel(userAgent string) string` → "iPhone Safari", "iPad Safari", "Android Chrome", "Windows Chrome/Edge/Firefox", "Mac Safari/Chrome", "Linux Firefox", "ChromeOS Chrome", fallback "Unknown device". Table tests with real UA strings.
+- [x] `internal/names`: `SnippetName(text string) string` → slug of first line (≤ 40 chars) + `.txt`, or `note-20061007-143012.txt`.
+- [x] `internal/store`: `Open(dataDir string, opts Options) (*Store, error)` creating `files/`, `.parts/`, loading `meta.json` and reconciling (drop entries whose file is gone), rebuilding reservations from `.parts/*.json`.
+- [x] `internal/store`: `Reserve(dir []string, name string, size int64, fingerprint, device string) (*Upload, error)` — mutex, `Dedupe` against `files/<dir>` + outstanding reservations, Statfs guard (`ErrInsufficientSpace`), max size (`ErrTooLarge`), creates `.part` with `O_CREATE|O_EXCL` and the `.json` sidecar.
+- [x] `internal/store`: `Offset(id) (int64, error)`, `Append(id string, offset int64, r io.Reader, limit int64) (newOffset int64, err error)` — `Stat` size must equal `offset` else `ErrOffsetMismatch{Current}`; write with `O_APPEND`; update `lastActivity`; Statfs re-check every 8th append.
+- [x] `internal/store`: `Finish(id) (relpath string, err error)` — require `offset == size`, fsync, re-run `Dedupe` (race), `MkdirAll` the target dir inside root, rename, write `meta.json` atomically, remove sidecar. `Abort(id)`.
+- [x] `internal/store`: `List(dir []string) (Listing, error)` — entries newest first, `expiresAt = mtime + ttl`, device from meta, `preview` = first 200 chars for `.txt` ≤ 64 KiB; plus in-progress uploads targeting that dir; `free` bytes.
+- [x] `internal/store`: `Delete(rel []string) error` (file or recursive dir, updates meta), `PutText(dir, text, device) (relpath, error)`.
+- [x] `internal/store`: `OpenFile(rel) (*os.File, os.FileInfo, error)` for downloads; `WriteZip(w io.Writer, dir []string, flush func()) error` using `archive/zip` with `zip.Store`, `Modified` set, recursive, `flush()` after each file, stops cleanly on write error (client abort).
+- [x] `internal/store`: `Sweep(now time.Time) (removedFiles, removedParts, removedDirs int)` — files with `mtime < now - ttl` (skip when ttl == 0), parts idle > 24h, empty dirs bottom-up (never `files/` itself). `RunSweeper(ctx, every 15m)`.
+- [x] `internal/store`: change notifications — `Store.Events() <-chan Event` with `Event{Kind: change|upload, Dir, Upload *UploadInfo}` emitted on reserve/append (throttled to 1/s per upload)/finish/abort/delete/sweep.
+- [x] Unit tests for all of the above against `t.TempDir()`: reserve→append (3 chunks)→finish round-trip with byte equality, offset mismatch returns current offset, duplicate names, finish race (same name reserved twice), delete dir, sweep TTL and stale parts and empty dirs, zip contents readable with `zip.NewReader` and names/sizes match, path escape attempts (`..`, symlink inside `files/` pointing outside) are rejected.
 
 ### Verification Plan
 - `go vet ./... && go test -race -count=1 ./internal/...` → `ok` for `names` and `store`, zero failures.
@@ -203,7 +203,41 @@ Status: Not started
 - `go test -run TestPathEscape -v ./internal/store` → prints the rejected cases and passes.
 
 ### Phase Summary
-_(write when phase completes)_
+Completed 2026-10-07. Verification results:
+
+| Check | Result |
+|---|---|
+| `go vet ./... && go test -race -count=1 ./internal/...` | all `ok`; also clean with `-count=5` and on the whole module |
+| `go test -cover ./internal/names ./internal/store` | names 96.6%, store 84.3% |
+| `go test -run TestPathEscape -v ./internal/store` | PASS, 35 rejected cases logged (symlink to outside, raw `..`, `a/b`, empty, `.`, NUL segments across List/Delete/OpenFile/Reserve/PutText/WriteZip) |
+
+Extra: `FuzzSanitize` ran about 90 s in total. It found a real panic: `Dedupe` on a 255-byte name whose
+"extension" was most of the name gave a negative slice bound, reachable by uploading such a name twice.
+The fix treats extensions over 32 bytes as part of the stem. The crasher is kept in
+`internal/names/testdata/fuzz/` as a permanent seed, and `TestDedupe` has a named regression case.
+`GOOS=darwin` and `GOOS=windows` vet clean (fallback rename and free-space code compile).
+
+**`internal/names` API** (differs from the plan's sketch in these ways):
+- `SplitRel(p)` is for *lookups*: it validates without rewriting, rejecting any segment that `Sanitize` would change, so a request can never be silently mapped to a different file. `CleanRel(p)` is for *creation*: it sanitizes each segment. Both treat `/` and `\` as separators, ignore empty and `.` segments (so a leading `/` means the root rather than an error), reject `..`, NUL and invalid UTF-8, and cap depth at 64 and length at 3072 bytes. `Join(segs)` renders a path.
+- `Sanitize` replaces `: * ? " < > |` with `_` (more readable than stripping; `14:30:12` becomes `14_30_12`), drops control, bidi-override and BOM characters, trims leading whitespace and trailing dots/whitespace, prefixes Windows device names with `_`, and caps at 255 bytes keeping an extension up to 32 bytes. Fuzzed property: idempotent, valid UTF-8, no separators, never `.`/`..`, always passes `SplitRel`.
+- `Dedupe` replaces an existing ` (n)` suffix instead of stacking, keeps `.tar.gz`-style double extensions, and stays within 255 bytes.
+- `SnippetName(text, now)` takes the clock as a parameter. A URL first line becomes `link-<host>.txt` (minus `www.`).
+- `DeviceLabel` covers iPhone/iPad/Android/Windows/Mac/Linux/ChromeOS with Safari/Chrome/Firefox/Edge/Opera/Samsung Internet, plus `curl` and `wget`.
+
+**`internal/store` behaviour worth knowing:**
+- `Reserve(dir, name, size, fingerprint, device)` returns an `UploadInfo`, not a pointer. With a fingerprint it **resumes** an active upload with the same fingerprint, size and folder, and **skips** a finished file with the same fingerprint and size in that folder (`State == "done"`, `Path` set, no `ID`). Re-dropping a folder therefore continues unfinished files and does not duplicate finished ones.
+- Name and folder matching is **case-insensitive**: `PHOTO.JPG` next to `photo.jpg` becomes `PHOTO (1).JPG`, and uploading into `trip/` merges into an existing `Trip/`. This prevents collisions when zips are extracted on Windows or macOS. A file in the way of a folder gives `ErrNotDir`.
+- The disk guard counts bytes still owed to all active uploads. If the free-space probe fails, the guard is skipped with a warning rather than blocking uploads.
+- The offset lives in memory (atomic) and is re-read from the part file after each write. The part file's mtime is the last-activity time, so the sidecar JSON is written once at reserve and has no `lastActivity` field.
+- Renames use `renameat(2)` on directory handles opened through `os.Root` (`rename_linux.go`), so no path is resolved outside the root. Non-Linux falls back to `os.Rename` after root checks. `moveIntoLocked` retries once if the sweeper removed a just-emptied folder mid-finish.
+- `meta.json` holds `{device, fingerprint}` per file and is written at most once per second (debounced), not once per finished file. `Close` and `FlushMeta` flush it. A corrupt file is logged and replaced.
+- `Delete` of a folder aborts uploads heading into it. Deleting the root is refused.
+- The sweeper removes an empty folder only if something inside it was removed in the same sweep, or it has been untouched for 10 minutes. This prevents a folder from vanishing while someone looks at it right after deleting its last file.
+- `List` returns folders with recursive `items`, `size`, latest `modified` and `expiresAt`. It also returns active uploads into the folder *or any subfolder* (each with its `dir`), and `free` (-1 if unknown). `.txt` files of 64 KiB or less get a 200-character `preview`.
+- `WriteZip` prefixes entries with the folder's own name (root zips have no prefix), includes empty folders, stores without compression, and skips symlinks. `StatDir` lets the handler fail before streaming starts.
+- Events: `change` carries the folder whose contents changed; `upload` carries `UploadInfo` with state `active`/`done`/`aborted` (progress at most once per second per upload). Events are dropped, with a warning, if the 1024-slot buffer is full.
+
+Next: Phase 2 wires these into HTTP handlers. The error-to-status mapping is listed in Phase 2.
 
 ## Phase 2: HTTP server
 Status: Not started
@@ -215,9 +249,9 @@ Status: Not started
 - [ ] Uploads: `POST /api/uploads` (JSON ≤ 64 KiB via `MaxBytesReader`; device label from `User-Agent`), `HEAD /api/uploads/{id}`, `PUT /api/uploads/{id}?offset=N` (`MaxBytesReader(chunkSize+1)` → 413 on overflow; 409 with `Upload-Offset` on mismatch; 507 on `ErrInsufficientSpace`; per-request read deadline 5 min via `ResponseController`), `POST .../finish`, `DELETE /api/uploads/{id}`.
 - [ ] `POST /api/text` (≤ 1 MiB), `DELETE /api/items?path=`.
 - [ ] `GET /d/{path...}`: `http.ServeContent` on a store-opened file, `Content-Disposition: attachment; filename="<ascii>"; filename*=UTF-8''<escaped>` built by hand (test with `żółw 🐢.txt`), `nosniff`, `Content-Type` from extension else `application/octet-stream`.
-- [ ] `GET /api/zip?path=`: headers `Content-Type: application/zip`, `Content-Disposition`, no `Content-Length`; `store.WriteZip` with `http.Flusher`; log and return on client abort.
-- [ ] SSE hub: `GET /api/events` sets `text/event-stream`, `Cache-Control: no-cache`, flushes a `: connected` comment immediately, fans out store events as `event: change` / `event: upload` with JSON data, `: ping` every 20 s, exits on `r.Context().Done()`. Slow clients get dropped (buffered channel, non-blocking send).
-- [ ] Error responses are JSON `{"error": "human readable"}` with the right status; the frontend shows them verbatim.
+- [ ] `GET /api/zip?path=`: call `store.StatDir` first so a bad path gets a proper 404/400 before headers are sent; then `Content-Type: application/zip`, `Content-Disposition`, no `Content-Length`; `store.WriteZip` with `http.Flusher`; log and return on client abort.
+- [ ] SSE hub: `GET /api/events` sets `text/event-stream`, `Cache-Control: no-cache`, flushes a `: connected` comment immediately, fans out store events as `event: change` / `event: upload` with JSON data, `: ping` every 20 s, exits on `r.Context().Done()`. Slow clients get dropped (buffered channel, non-blocking send). Coalesce `change` events per folder (at most one per 500 ms) because each one makes every open page re-list, and `List` walks subfolders for their totals.
+- [ ] Error responses are JSON `{"error": "human readable"}` with the right status; the frontend shows them verbatim. Map store errors: `ErrNotFound` 404, `ErrBadPath` 400, `ErrInvalid` 400, `ErrIsDir` 400, `ErrNotDir` 409, `ErrIncomplete` 409, `*OffsetMismatchError` 409 + `Upload-Offset`, `ErrTooLarge` 413, `ErrChunkTooLarge` 413, `ErrInsufficientSpace` 507, anything else 500 (logged). Parse `dir`/`path` with `names.CleanRel` for uploads and text, `names.SplitRel` for everything else.
 - [ ] Request logging with `log/slog` (method, path, status, duration, client IP; one line per finished upload with path, size, device).
 - [ ] `cmd/uped/main.go`: config, server timeouts and graceful shutdown exist since Phase 0. Remaining: replace the `os.MkdirAll` stand-in with `store.Open`, pass the store into `server.New`, start the sweeper, log the reachable URL with the detected LAN IPv4 (for example `http://192.168.1.50:8080`), and make shutdown end SSE streams (`srv.RegisterOnShutdown` closing the hub) so it does not wait the full 10 s.
 - [ ] `internal/server` tests with `httptest`: full upload round-trip in 3 PUTs with byte-equal download; 409 path; 413 for oversized chunk; 507 when `minFree` is set above the temp dir's free space; Range request returns 206 with the right bytes; HEAD download; `Content-Disposition` for a non-ASCII name; zip response readable by `zip.NewReader`; SSE: connect, perform an upload, assert `change` and `upload` events arrive within 2 s; path traversal via URL (`/d/../../x`, `%2e%2e`) → 400/404, never a file outside `files/`.
@@ -240,10 +274,10 @@ Status: Not started
 - [ ] Breadcrumbs reflect `dir`; browser `history.pushState` with `?path=` so back/forward and refresh keep the directory.
 - [ ] Drag and drop: `dragenter/dragover/drop` on `document`, overlay while dragging, `DataTransferItem.webkitGetAsEntry()` recursion (`readEntries` until an empty batch) to collect `{file, relDir}`; fallback to `dataTransfer.files` when entries are unavailable.
 - [ ] Pickers: files → `relDir = ""`; folder → `relDir = dirname(file.webkitRelativePath)`. Target directory for every upload = `join(currentDir, relDir)`.
-- [ ] Upload engine exactly as in **Upload client state machine**: `XMLHttpRequest` per chunk, `upload.onprogress`, retries, 409 resync, HEAD on `visibilitychange`, `localStorage` fingerprint map, one in flight, FIFO. Queue panel shows per-file bar, overall bar, speed and ETA (throttled 300 ms), Cancel (DELETE upload) and Retry.
+- [ ] Upload engine exactly as in **Upload client state machine** (a `POST /api/uploads` answer with `state: "done"` means the server already has that file: mark it complete without sending bytes): `XMLHttpRequest` per chunk, `upload.onprogress`, retries, 409 resync, HEAD on `visibilitychange`, `localStorage` fingerprint map, one in flight, FIFO. Queue panel shows per-file bar, overall bar, speed and ETA (throttled 300 ms), Cancel (DELETE upload) and Retry.
 - [ ] Error surfacing: 413 / 507 / network errors show the server's `error` text inline on the queue item; a 507 pauses the whole queue with a "Disk full on server" banner.
 - [ ] Snippets: textarea Save → `POST /api/text`. Global `paste` listener (ignored when target is input/textarea): image items → upload as `pasted-<timestamp>.png`; plain text → `POST /api/text`. Text items render the `preview` and a Copy button that fetches `/d/<path>` then copies via `navigator.clipboard?.writeText` or the hidden-textarea `execCommand('copy')` fallback; show "Copied" toast.
-- [ ] Live updates: `EventSource('/api/events')`; on `change` for the current dir or an ancestor → refetch list; on `upload` → upsert a greyed "incoming" row with name and % for uploads targeting the current dir (skip ones that are in this tab's own queue); close on `pagehide`; on `error` the browser reconnects, refetch the list on `open`.
+- [ ] Live updates: `EventSource('/api/events')`; on `change` whose `dir` is the current folder, inside it, or above it → refetch the list (debounced ~300 ms); on `upload` → upsert a greyed "incoming" row with name and % for uploads targeting the current dir (skip ones that are in this tab's own queue); close on `pagehide`; on `error` the browser reconnects, refetch the list on `open`.
 - [ ] Empty state copy ("Drop files here or tap Add files. Everything disappears after 7 days.") and a footer line with version.
 - [ ] Manual check in the real browser via the `run` skill: desktop drop of a folder, phone-width viewport, dark mode screenshot.
 
