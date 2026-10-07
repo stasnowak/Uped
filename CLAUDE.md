@@ -17,6 +17,7 @@ make build    # static binary at dist/uped (CGO_ENABLED=0)
 make test     # go vet ./... && go test -race ./...
 make run      # serve on 127.0.0.1:8080 from ./data (LISTEN=0.0.0.0:8080 to test from a phone)
 make cross    # dist/uped_linux_{amd64,arm64}.tar.gz + dist/checksums.txt
+sh scripts/smoke.sh   # end-to-end curl check of dist/uped; prints SMOKE OK
 make e2e      # Playwright suite in e2e/ (Phase 4)
 dist/uped --help
 ```
@@ -27,6 +28,7 @@ dist/uped --help
 - `internal/names/` pure helpers: sanitise names, dedupe `name (1).ext`, device label from User-Agent.
 - `internal/store/` everything on disk under `--data`: chunked uploads, list, delete, zip, sweeper, disk guard.
 - `internal/server/` HTTP handlers and the SSE hub. Static files arrive via `server.Options.Static`.
+  Error-to-status mapping lives in `respond.go`; idle deadlines and request logging in `middleware.go`.
 - `web/` the UI. `web/embed.go` embeds it as `web.FS`; add new asset files to its `//go:embed` line.
   `go:embed` cannot reach parent directories, which is why the embed lives in `web/` itself.
 

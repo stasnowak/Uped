@@ -7,5 +7,5 @@ import "embed"
 // FS holds the web assets. index.html sits at the root.
 // Add new asset files to the go:embed line below.
 //
-//go:embed index.html
+//go:embed index.html app.js style.css
 var FS embed.FS

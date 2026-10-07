@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"flag"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -171,5 +172,25 @@ func TestFormatTTL(t *testing.T) {
 		if back, err := parseTTL(formatTTL(in)); err != nil || back != in {
 			t.Errorf("round trip %v -> %q -> %v, %v", in, formatTTL(in), back, err)
 		}
+	}
+}
+
+func TestReachableURLs(t *testing.T) {
+	specific := &net.TCPAddr{IP: net.ParseIP("192.168.1.50"), Port: 8080}
+	if got := reachableURLs(specific); len(got) != 1 || got[0] != "http://192.168.1.50:8080/" {
+		t.Errorf("specific address -> %q", got)
+	}
+	wildcard := &net.TCPAddr{IP: net.IPv6unspecified, Port: 8080}
+	got := reachableURLs(wildcard)
+	if len(got) == 0 {
+		t.Fatal("wildcard address gave no URLs")
+	}
+	for _, u := range got {
+		if !strings.HasPrefix(u, "http://") || !strings.HasSuffix(u, ":8080/") || strings.Contains(u, "127.0.0.1") {
+			t.Errorf("bad URL %q", u)
+		}
+	}
+	if reachableURLs(&net.UDPAddr{}) != nil {
+		t.Error("non-TCP address gave URLs")
 	}
 }

@@ -98,11 +98,11 @@ File mtime = time of last byte written (rename preserves it) = upload completion
 GET    /                          index.html (embedded)
 GET    /static/{app.js,style.css} embedded assets, Cache-Control: no-cache
 GET    /healthz                   "ok"
-GET    /api/config                {version, chunkSize, ttlSeconds, maxFileSize, minFree}
+GET    /api/config                {version, chunkSize, ttlSeconds, maxFileSize, minFree, maxTextBytes}
 GET    /api/list?path=<dir>       {path, entries:[{name,type,size,modified,expiresAt,device,preview?}], uploads:[{id,name,size,offset,device}], free}
-GET    /api/events                SSE. events: "change" {path:<dir>}, "upload" {id,dir,name,size,offset,state}; ": ping" every 20 s
+GET    /api/events                SSE. starts with ": connected"; events: "change" {dir}, "upload" {id,dir,name,size,offset,state,path?}; ": ping" every 20 s
 POST   /api/uploads               {name, dir, size, fingerprint} → 201 {id, offset, name, dir, state}; state "done" + path means already uploaded, skip; 413 too large; 507 disk
-HEAD   /api/uploads/{id}          200 + Upload-Offset header, or 404
+GET    /api/uploads/{id}          200 + Upload-Offset/Upload-Length headers + JSON state (HEAD: headers only), or 404
 PUT    /api/uploads/{id}?offset=N body = one chunk (MaxBytesReader chunk+1) → 204 + Upload-Offset; 409 + Upload-Offset on mismatch; 507 disk
 POST   /api/uploads/{id}/finish   fsync, re-dedupe target, rename into files/, write meta → 200 {path}
 DELETE /api/uploads/{id}          abort, remove .part/.json
@@ -240,22 +240,22 @@ The fix treats extensions over 32 bytes as part of the stem. The crasher is kept
 Next: Phase 2 wires these into HTTP handlers. The error-to-status mapping is listed in Phase 2.
 
 ## Phase 2: HTTP server
-Status: Not started
+Status: Complete
 
-- [ ] `internal/server`: `New(store, cfg) http.Handler` using `http.NewServeMux` with Go 1.22 method patterns (`"PUT /api/uploads/{id}"`).
-- [ ] Static: add `app.js style.css` to the `//go:embed` line in `web/embed.go`; serve `/static/*` from `Options.Static` via `http.StripPrefix("/static/", http.FileServerFS(...))` with `Cache-Control: no-cache`. (`/` → `index.html` exists since Phase 0.)
-- [ ] `GET /api/config` (`GET /healthz` exists since Phase 0).
-- [ ] `GET /api/list` (400 on bad path, 404 on missing dir).
-- [ ] Uploads: `POST /api/uploads` (JSON ≤ 64 KiB via `MaxBytesReader`; device label from `User-Agent`), `HEAD /api/uploads/{id}`, `PUT /api/uploads/{id}?offset=N` (`MaxBytesReader(chunkSize+1)` → 413 on overflow; 409 with `Upload-Offset` on mismatch; 507 on `ErrInsufficientSpace`; per-request read deadline 5 min via `ResponseController`), `POST .../finish`, `DELETE /api/uploads/{id}`.
-- [ ] `POST /api/text` (≤ 1 MiB), `DELETE /api/items?path=`.
-- [ ] `GET /d/{path...}`: `http.ServeContent` on a store-opened file, `Content-Disposition: attachment; filename="<ascii>"; filename*=UTF-8''<escaped>` built by hand (test with `żółw 🐢.txt`), `nosniff`, `Content-Type` from extension else `application/octet-stream`.
-- [ ] `GET /api/zip?path=`: call `store.StatDir` first so a bad path gets a proper 404/400 before headers are sent; then `Content-Type: application/zip`, `Content-Disposition`, no `Content-Length`; `store.WriteZip` with `http.Flusher`; log and return on client abort.
-- [ ] SSE hub: `GET /api/events` sets `text/event-stream`, `Cache-Control: no-cache`, flushes a `: connected` comment immediately, fans out store events as `event: change` / `event: upload` with JSON data, `: ping` every 20 s, exits on `r.Context().Done()`. Slow clients get dropped (buffered channel, non-blocking send). Coalesce `change` events per folder (at most one per 500 ms) because each one makes every open page re-list, and `List` walks subfolders for their totals.
-- [ ] Error responses are JSON `{"error": "human readable"}` with the right status; the frontend shows them verbatim. Map store errors: `ErrNotFound` 404, `ErrBadPath` 400, `ErrInvalid` 400, `ErrIsDir` 400, `ErrNotDir` 409, `ErrIncomplete` 409, `*OffsetMismatchError` 409 + `Upload-Offset`, `ErrTooLarge` 413, `ErrChunkTooLarge` 413, `ErrInsufficientSpace` 507, anything else 500 (logged). Parse `dir`/`path` with `names.CleanRel` for uploads and text, `names.SplitRel` for everything else.
-- [ ] Request logging with `log/slog` (method, path, status, duration, client IP; one line per finished upload with path, size, device).
-- [ ] `cmd/uped/main.go`: config, server timeouts and graceful shutdown exist since Phase 0. Remaining: replace the `os.MkdirAll` stand-in with `store.Open`, pass the store into `server.New`, start the sweeper, log the reachable URL with the detected LAN IPv4 (for example `http://192.168.1.50:8080`), and make shutdown end SSE streams (`srv.RegisterOnShutdown` closing the hub) so it does not wait the full 10 s.
-- [ ] `internal/server` tests with `httptest`: full upload round-trip in 3 PUTs with byte-equal download; 409 path; 413 for oversized chunk; 507 when `minFree` is set above the temp dir's free space; Range request returns 206 with the right bytes; HEAD download; `Content-Disposition` for a non-ASCII name; zip response readable by `zip.NewReader`; SSE: connect, perform an upload, assert `change` and `upload` events arrive within 2 s; path traversal via URL (`/d/../../x`, `%2e%2e`) → 400/404, never a file outside `files/`.
-- [ ] `scripts/smoke.sh` (POSIX sh, curl): starts `dist/uped` on a temp dir and random port, exercises every endpoint, compares sha256 of a 40 MiB random file uploaded in 16 MiB chunks against the download, prints `SMOKE OK`.
+- [x] `internal/server`: `New(store, cfg) http.Handler` using `http.NewServeMux` with Go 1.22 method patterns (`"PUT /api/uploads/{id}"`).
+- [x] Static: add `app.js style.css` to the `//go:embed` line in `web/embed.go`; serve `/static/*` from `Options.Static` via `http.StripPrefix("/static/", http.FileServerFS(...))` with `Cache-Control: no-cache`. (`/` → `index.html` exists since Phase 0.)
+- [x] `GET /api/config` (`GET /healthz` exists since Phase 0).
+- [x] `GET /api/list` (400 on bad path, 404 on missing dir).
+- [x] Uploads: `POST /api/uploads` (JSON ≤ 64 KiB via `MaxBytesReader`; device label from `User-Agent`), `HEAD /api/uploads/{id}`, `PUT /api/uploads/{id}?offset=N` (`MaxBytesReader(chunkSize+1)` → 413 on overflow; 409 with `Upload-Offset` on mismatch; 507 on `ErrInsufficientSpace`; per-request read deadline 5 min via `ResponseController`), `POST .../finish`, `DELETE /api/uploads/{id}`.
+- [x] `POST /api/text` (≤ 1 MiB), `DELETE /api/items?path=`.
+- [x] `GET /d/{path...}`: `http.ServeContent` on a store-opened file, `Content-Disposition: attachment; filename="<ascii>"; filename*=UTF-8''<escaped>` built by hand (test with `żółw 🐢.txt`), `nosniff`, `Content-Type` from extension else `application/octet-stream`.
+- [x] `GET /api/zip?path=`: call `store.StatDir` first so a bad path gets a proper 404/400 before headers are sent; then `Content-Type: application/zip`, `Content-Disposition`, no `Content-Length`; `store.WriteZip` with `http.Flusher`; log and return on client abort.
+- [x] SSE hub: `GET /api/events` sets `text/event-stream`, `Cache-Control: no-cache`, flushes a `: connected` comment immediately, fans out store events as `event: change` / `event: upload` with JSON data, `: ping` every 20 s, exits on `r.Context().Done()`. Slow clients get dropped (buffered channel, non-blocking send). Coalesce `change` events per folder (at most one per 500 ms) because each one makes every open page re-list, and `List` walks subfolders for their totals.
+- [x] Error responses are JSON `{"error": "human readable"}` with the right status; the frontend shows them verbatim. Map store errors: `ErrNotFound` 404, `ErrBadPath` 400, `ErrInvalid` 400, `ErrIsDir` 400, `ErrNotDir` 409, `ErrIncomplete` 409, `*OffsetMismatchError` 409 + `Upload-Offset`, `ErrTooLarge` 413, `ErrChunkTooLarge` 413, `ErrInsufficientSpace` 507, anything else 500 (logged). Parse `dir`/`path` with `names.CleanRel` for uploads and text, `names.SplitRel` for everything else.
+- [x] Request logging with `log/slog` (method, path, status, duration, client IP; one line per finished upload with path, size, device).
+- [x] `cmd/uped/main.go`: config, server timeouts and graceful shutdown exist since Phase 0. Remaining: replace the `os.MkdirAll` stand-in with `store.Open`, pass the store into `server.New`, start the sweeper, log the reachable URL with the detected LAN IPv4 (for example `http://192.168.1.50:8080`), and make shutdown end SSE streams (`srv.RegisterOnShutdown` closing the hub) so it does not wait the full 10 s.
+- [x] `internal/server` tests with `httptest`: full upload round-trip in 3 PUTs with byte-equal download; 409 path; 413 for oversized chunk; 507 when `minFree` is set above the temp dir's free space; Range request returns 206 with the right bytes; HEAD download; `Content-Disposition` for a non-ASCII name; zip response readable by `zip.NewReader`; SSE: connect, perform an upload, assert `change` and `upload` events arrive within 2 s; path traversal via URL (`/d/../../x`, `%2e%2e`) → 400/404, never a file outside `files/`.
+- [x] `scripts/smoke.sh` (POSIX sh, curl): starts `dist/uped` on a temp dir and random port, exercises every endpoint, compares sha256 of a 40 MiB random file uploaded in 16 MiB chunks against the download, prints `SMOKE OK`.
 
 ### Verification Plan
 - `go vet ./... && go test -race -count=1 ./...` → all packages `ok`.
@@ -263,7 +263,40 @@ Status: Not started
 - `go run ./cmd/uped --data ./data --listen 127.0.0.1:8080 &` then `curl -s localhost:8080/api/config` → JSON containing `"chunkSize":16777216`; `curl -sN localhost:8080/api/events | head -c 12` → `: connected`.
 
 ### Phase Summary
-_(write when phase completes)_
+Completed 2026-10-07. Verification results:
+
+| Check | Result |
+|---|---|
+| `go vet ./... && go test -race -count=1 ./...` | all five packages `ok`; server and store also pass `-count=5` under `-race` |
+| `make build && sh scripts/smoke.sh` | `SMOKE OK` under `dash` (strict POSIX `/bin/sh` here): 25 checks including a 40 MiB random file in three 16 MiB chunks with matching sha256 |
+| `go run ./cmd/uped --data ./data --listen 127.0.0.1:8080` | `/api/config` returned `"chunkSize":16777216`; `/api/events` first 12 bytes were `: connected` |
+
+Extra checks: shutdown with an open event stream took 23 ms, and 1-2 ms with none (four timed runs). One
+orphaned test process once took about 2 s to exit, which did not reproduce. `GOOS=darwin`, `windows` and
+`linux/arm64` vet clean. With a wildcard listen address the log prints `open this on any device on your
+network url=http://<lan-ip>:<port>/`.
+
+What exists now:
+- `internal/server`: `New(Options{Version, Static, Store, ChunkSize, Logger, IdleTimeout}) (*Server, error)`. `*Server` is the `http.Handler`; `Close()` ends live streams and is registered with `http.Server.RegisterOnShutdown`. Files: `server.go` (routes, static, config), `respond.go` (JSON and error mapping), `middleware.go` (logging, idle deadlines), `uploads.go`, `files.go`, `events.go`.
+- Every route in the **HTTP API** reference, plus `GET /api/uploads/{id}` (JSON state; `HEAD` gives just the headers) and `GET /favicon.ico` (204).
+- `cmd/uped/main.go` opens the store, builds the server, starts the 15-minute sweeper, and logs reachable URLs (`reachableURLs`, tested).
+- `scripts/smoke.sh`: POSIX sh smoke test. It starts the binary with `--listen 127.0.0.1:0` and reads the chosen port from the log, so it needs no free-port tricks.
+- `web/app.js` and `web/style.css` are placeholders, now embedded and linked from `index.html`.
+
+Decisions and differences from the plan:
+- **Idle deadlines instead of a fixed 5-minute chunk deadline.** Chunk bodies, downloads, zips and the event stream are cut after `IdleTimeout` (60 s) *without progress*, so a slow phone may take as long as it needs while a dead connection is dropped. net/http does not clear write deadlines between keep-alive requests when `Server.WriteTimeout` is 0, so every handler that sets one resets it on exit (`TestWriteDeadlineResetBetweenRequests` covers this with a raw keep-alive connection).
+- **A failed zip stream aborts the connection** (`panic(http.ErrAbortHandler)`), so the browser reports a failed download rather than saving a truncated zip that looks complete.
+- **Downloads are always attachments** and carry `Content-Security-Policy: sandbox` and `nosniff`, so an uploaded HTML file cannot run as a page on uped's origin. `Content-Disposition` is built by hand with an ASCII fallback (`download.ext` when nothing readable is ASCII) plus `filename*`.
+- **Change-event throttling is leading-edge.** The first change goes out at once and later ones within 500 ms are merged into one batch per folder at the end of the window. Upload events are never delayed.
+- Static assets are served from memory with content-hash ETags (`no-cache` plus revalidation, so a new build is picked up immediately).
+- Logging: routine traffic (chunks, listings, static files, the stream) logs at Debug, which is hidden by default. Creates, finishes, downloads, zips, deletes log at Info; 4xx at Warn; 5xx at Error.
+- An interrupted chunk answers 400 with `Upload-Offset` (bytes received so far are kept, see `TestInterruptedChunkKeepsBytes`). A disk-full write maps to 507.
+- Path traversal over HTTP is refused everywhere (`TestPathTraversalViaHTTP`, 20 requests). The only non-4xx answer is Go's router redirecting `/d/../../etc/passwd` to `/etc/passwd`, which is a 404 on uped.
+
+Notes for Phase 3 (also added to its items):
+- `POST /api/uploads` answering `state: "done"` means skip the file. If `finish` returns 404 because its response was lost on a dropped connection, re-POST the create request: the fingerprint match answers `done` with the final path.
+- An `upload` event with `state: "done"` can arrive up to 500 ms before the matching `change`. Treat it as a change of its `dir` too.
+- Keep `<title>uped</title>`; the Go tests and the smoke script check for it.
 
 ## Phase 3: Web UI
 Status: Not started
@@ -274,10 +307,10 @@ Status: Not started
 - [ ] Breadcrumbs reflect `dir`; browser `history.pushState` with `?path=` so back/forward and refresh keep the directory.
 - [ ] Drag and drop: `dragenter/dragover/drop` on `document`, overlay while dragging, `DataTransferItem.webkitGetAsEntry()` recursion (`readEntries` until an empty batch) to collect `{file, relDir}`; fallback to `dataTransfer.files` when entries are unavailable.
 - [ ] Pickers: files → `relDir = ""`; folder → `relDir = dirname(file.webkitRelativePath)`. Target directory for every upload = `join(currentDir, relDir)`.
-- [ ] Upload engine exactly as in **Upload client state machine** (a `POST /api/uploads` answer with `state: "done"` means the server already has that file: mark it complete without sending bytes): `XMLHttpRequest` per chunk, `upload.onprogress`, retries, 409 resync, HEAD on `visibilitychange`, `localStorage` fingerprint map, one in flight, FIFO. Queue panel shows per-file bar, overall bar, speed and ETA (throttled 300 ms), Cancel (DELETE upload) and Retry.
+- [ ] Upload engine exactly as in **Upload client state machine** (a `POST /api/uploads` answer with `state: "done"` means the server already has that file: mark it complete without sending bytes; if `finish` returns 404, re-POST the create request to learn whether it completed): `XMLHttpRequest` per chunk, `upload.onprogress`, retries, 409 resync, HEAD on `visibilitychange`, `localStorage` fingerprint map, one in flight, FIFO. Queue panel shows per-file bar, overall bar, speed and ETA (throttled 300 ms), Cancel (DELETE upload) and Retry.
 - [ ] Error surfacing: 413 / 507 / network errors show the server's `error` text inline on the queue item; a 507 pauses the whole queue with a "Disk full on server" banner.
 - [ ] Snippets: textarea Save → `POST /api/text`. Global `paste` listener (ignored when target is input/textarea): image items → upload as `pasted-<timestamp>.png`; plain text → `POST /api/text`. Text items render the `preview` and a Copy button that fetches `/d/<path>` then copies via `navigator.clipboard?.writeText` or the hidden-textarea `execCommand('copy')` fallback; show "Copied" toast.
-- [ ] Live updates: `EventSource('/api/events')`; on `change` whose `dir` is the current folder, inside it, or above it → refetch the list (debounced ~300 ms); on `upload` → upsert a greyed "incoming" row with name and % for uploads targeting the current dir (skip ones that are in this tab's own queue); close on `pagehide`; on `error` the browser reconnects, refetch the list on `open`.
+- [ ] Live updates: `EventSource('/api/events')`; on `change` whose `dir` is the current folder, inside it, or above it → refetch the list (debounced ~300 ms), and treat an `upload` event with `state: "done"` the same way for its `dir`; on `upload` → upsert a greyed "incoming" row with name and % for uploads targeting the current dir (skip ones that are in this tab's own queue); close on `pagehide`; on `error` the browser reconnects, refetch the list on `open`.
 - [ ] Empty state copy ("Drop files here or tap Add files. Everything disappears after 7 days.") and a footer line with version.
 - [ ] Manual check in the real browser via the `run` skill: desktop drop of a folder, phone-width viewport, dark mode screenshot.
 
